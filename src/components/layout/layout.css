@@ -1,0 +1,198 @@
+/* ── Layout Styles — Premium Pro Theme ─────────── */
+
+/* ── Sidebar Navigation (ALWAYS DARK) ─────────────────── */
+.sidebar, .admin-sidebar {
+  width: var(--sidebar-width);
+  /* Force Dark Theme regardless of Light Mode toggle */
+  background: #0b1116 !important;
+  border-right: 1px solid rgba(255, 255, 255, 0.08) !important;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  z-index: var(--z-nav);
+  flex-shrink: 0;
+  transition: transform 0.3s ease;
+}
+
+.sidebar-logo, .admin-sidebar-logo {
+  padding: 32px 24px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.sidebar-logo .logo-icon, .logo-icon-premium {
+  width: 40px; height: 40px;
+  background: var(--accent-primary);
+  display: flex; align-items: center; justify-content: center;
+  color: white !important;
+  font-weight: 800;
+  border-radius: 12px;
+  box-shadow: 0 8px 20px rgba(56, 189, 248, 0.3);
+}
+
+.sidebar-logo h1, .admin-sidebar .brand-name { 
+  font-size: 20px; 
+  font-weight: 900; 
+  color: #ffffff !important; /* Force White */
+}
+.sidebar-logo h1 span, .brand-name span { color: var(--accent-primary); }
+
+.sidebar-nav, .admin-nav { flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 4px; }
+
+.sidebar-item, .admin-nav-item {
+  display: flex; align-items: center; gap: 12px; padding: 12px 16px;
+  color: #8ea2b5 !important; /* Muted Blue/Gray for Dark */
+  text-decoration: none; border-radius: 10px;
+  transition: all 0.2s; font-weight: 600; font-size: 14px;
+}
+.sidebar-item:hover, .admin-nav-item:hover { 
+  background: rgba(255, 255, 255, 0.05); 
+  color: #ffffff !important; 
+}
+.sidebar-item.active, .admin-nav-item.active { 
+  background: var(--accent-primary); 
+  color: white !important; 
+  box-shadow: 0 10px 20px rgba(56, 189, 248, 0.25); 
+}
+
+.sidebar-group-title, .admin-nav-section-title { 
+  padding: 16px 16px 8px; font-size: 10px; font-weight: 800; 
+  color: #4b5e71 !important; text-transform: uppercase; letter-spacing: 1.5px; 
+}
+
+.sidebar-footer, .admin-sidebar-footer { padding: 16px; border-top: 1px solid rgba(255, 255, 255, 0.08); }
+
+/* ── Gym Layout ────────────────────────── */
+.gym-layout {
+  min-height: 100vh;
+  display: flex;
+  background: var(--bg-primary);
+  width: 100%;
+}
+
+.gym-main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-primary);
+}
+
+.gym-header {
+  position: sticky;
+  top: 0;
+  z-index: var(--z-sticky);
+  background: var(--bg-secondary);
+  backdrop-filter: blur(12px);
+  border-bottom: 1px solid var(--border-color);
+  padding: 0 var(--space-xl);
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between; 
+  transition: background 0.3s;
+}
+
+/* ── Header Logo Polish ─── */
+.gym-header-logo {
+  display: flex !important;
+  align-items: center;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.gym-header-logo .logo-icon {
+  width: 32px; height: 32px;
+  background: var(--accent-primary);
+  display: flex; align-items: center; justify-content: center;
+  color: white; font-weight: 800; border-radius: 8px;
+  font-size: 14px;
+  box-shadow: 0 4px 12px rgba(56, 189, 248, 0.2);
+}
+
+.gym-header-logo h1 { 
+  font-size: 16px; 
+  font-weight: 900; 
+  letter-spacing: -0.5px;
+  color: var(--text-primary);
+}
+.gym-header-logo h1 span { color: var(--accent-primary); }
+
+.gym-header-actions { display: flex; align-items: center; gap: 12px; }
+
+.gym-header-actions .btn-icon {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+}
+.gym-header-actions .btn-icon:hover {
+  background: var(--bg-elevated);
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+}
+
+.desktop-only { display: flex; }
+.bottom-nav { display: none; }
+.mobile-logo { display: none; }
+
+/* ── Main Content Area ─── */
+main {
+  flex: 1;
+  background: var(--bg-primary);
+  width: 100%;
+}
+
+/* ── Unified Responsive Block ─── */
+@media (max-width: 1024px) {
+  .sidebar, .admin-sidebar { display: none !important; }
+  .gym-main-content, .admin-main { margin-left: 0 !important; width: 100% !important; min-width: 100% !important; }
+  .gym-header, .admin-topbar { justify-content: space-between !important; padding: 0 var(--space-md) !important; height: 60px !important; }
+  
+  .gym-header-logo { display: flex !important; }
+  .mobile-logo { display: flex !important; align-items: center; gap: 8px; }
+  
+  .desktop-only { display: none !important; }
+
+  .bottom-nav {
+    display: flex;
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: var(--bottom-nav-height);
+    background: #0b1116; /* Always dark bottom nav too */
+    border-top: 1px solid rgba(255,255,255,0.08);
+    padding: 4px var(--space-sm);
+    z-index: var(--z-nav);
+    backdrop-filter: blur(12px);
+  }
+
+  .bottom-nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px;
+    color: #8ea2b5; text-decoration: none; font-size: 10px; font-weight: 700;
+  }
+  .bottom-nav-item.active { color: var(--accent-primary); }
+}
+
+/* ── More Drawer ───────────────────────── */
+.more-drawer-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.4); z-index: 1000;
+  animation: fadeIn 0.15s ease; backdrop-filter: blur(8px);
+}
+.more-drawer {
+  position: fixed; bottom: 0; left: 0; right: 0; background: #121b22; /* Always dark drawer */
+  border: 1px solid rgba(255,255,255,0.08); border-radius: 20px 20px 0 0;
+  padding: 16px; padding-bottom: calc(32px + var(--bottom-nav-height));
+  animation: slideUp 0.2s ease; max-width: 500px; margin: 0 auto; z-index: 1001;
+}
+.more-drawer-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; padding-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.08); }
+.more-drawer-title { font-size: 10px; font-weight: 800; color: #8ea2b5; text-transform: uppercase; letter-spacing: 1px; }
+
+.more-drawer-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.more-drawer-item { 
+  display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 12px 8px; 
+  background: #1a2630; border: 1px solid rgba(255,255,255,0.05); border-radius: 12px; cursor: pointer; text-align: center; 
+}
+.more-drawer-label { font-size: 9px; font-weight: 800; color: #b6c7d6; text-transform: uppercase; }
+
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
