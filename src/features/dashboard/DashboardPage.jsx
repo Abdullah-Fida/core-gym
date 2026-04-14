@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import {
   Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
   ChevronRight, UserPlus, CreditCard, MessageCircle,
-  TrendingDown, Activity, Zap, Clock
+  TrendingDown, Activity, Zap, Clock, Eye, EyeOff
 } from 'lucide-react';
 import {
   Chart as ChartJS, CategoryScale, LinearScale, BarElement,
@@ -34,6 +34,22 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('revenue');
   const { isSyncing } = useSync();
+  const [visibleMetrics, setVisibleMetrics] = useState({});
+
+  const toggleMetric = (e, id) => {
+    e.stopPropagation();
+    // If undefined (default), set to false (hide). Otherwise flip.
+    setVisibleMetrics(prev => ({ 
+      ...prev, 
+      [id]: prev[id] === undefined ? false : !prev[id] 
+    }));
+  };
+
+  const maskValue = (id, value) => {
+    // Hidden only if explicitly set to false
+    if (visibleMetrics[id] === false) return '••••••';
+    return value;
+  };
 
   // ── LIVE QUERY: Reactive Dashboard Data ──
   const dashboardData = useLiveQuery(async () => {
@@ -189,12 +205,12 @@ export default function DashboardPage() {
   };
 
   const statCards = [
-    { label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
-    { label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
-    { label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
-    { label: 'Month Revenue', value: formatPKR(stats.revenue), icon: TrendingUp, color: CHART_ORANGE, pct: 'Total collected', onClick: () => navigate('/payments') },
-    { label: 'Total Expenses', value: formatPKR(stats.expenses), icon: TrendingDown, color: CHART_RED, pct: `Incl. ${formatPKR(stats.salaryTotal)} Salaries`, onClick: () => navigate('/expenses/summary') },
-    { label: 'Net Profit', value: formatPKR(stats.profit), icon: DollarSign, color: (stats.profit || 0) >= 0 ? CHART_GREEN : CHART_RED, pct: (stats.profit || 0) >= 0 ? '▲ Profitable' : '▼ Loss', onClick: () => navigate('/expenses/summary') },
+    { id: 'active_m', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
+    { id: 'expired_m', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
+    { id: 'due_m', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
+    { id: 'm_rev', label: 'Month Revenue', value: formatPKR(stats.revenue), icon: TrendingUp, color: CHART_ORANGE, pct: 'Total collected', onClick: () => navigate('/payments') },
+    { id: 'm_exp', label: 'Total Expenses', value: formatPKR(stats.expenses), icon: TrendingDown, color: CHART_RED, pct: `Incl. ${formatPKR(stats.salaryTotal)} Salaries`, onClick: () => navigate('/expenses/summary') },
+    { id: 'm_profit', label: 'Net Profit', value: formatPKR(stats.profit), icon: DollarSign, color: (stats.profit || 0) >= 0 ? CHART_GREEN : CHART_RED, pct: (stats.profit || 0) >= 0 ? '▲ Profitable' : '▼ Loss', onClick: () => navigate('/expenses/summary') },
   ];
 
   return (
@@ -215,10 +231,15 @@ export default function DashboardPage() {
       <div className="stats-grid">
         {statCards.map((s, i) => (
           <div key={i} className={'stat-card'} style={{ '--stat-color': s.color, cursor: s.onClick ? 'pointer' : 'default' }} onClick={s.onClick}>
-            <div className="stat-icon" style={{ background: s.color + '18' }}>
-              <s.icon size={20} style={{ color: s.color }} />
+            <div className="stat-header">
+              <div className="stat-icon" style={{ background: s.color + '18' }}>
+                <s.icon size={20} style={{ color: s.color }} />
+              </div>
+              <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.id)}>
+                 {visibleMetrics[s.id] === false ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
             </div>
-            <div className="stat-value" style={{ color: s.color }}>{s.value}</div>
+            <div className="stat-value" style={{ color: s.color }}>{maskValue(s.id, s.value)}</div>
             <div className="stat-label">{s.label}</div>
             <div className="stat-pct">{s.pct}</div>
           </div>
@@ -305,16 +326,31 @@ export default function DashboardPage() {
         <div className="section-title">THIS MONTH</div>
         <div className="summary-grid">
           <div className="summary-item">
-            <div className="summary-value" style={{ color: CHART_ORANGE }}>{formatPKR(stats.revenue)}</div>
+            <div className="summary-header">
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_rev')}>
+                {visibleMetrics['summ_rev'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+            </div>
+            <div className="summary-value" style={{ color: CHART_ORANGE }}>{maskValue('summ_rev', formatPKR(stats.revenue))}</div>
             <div className="summary-label">Revenue</div>
           </div>
           <div className="summary-item">
-            <div className="summary-value" style={{ color: CHART_RED }}>{formatPKR(stats.expenses)}</div>
+            <div className="summary-header">
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_exp')}>
+                {visibleMetrics['summ_exp'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+            </div>
+            <div className="summary-value" style={{ color: CHART_RED }}>{maskValue('summ_exp', formatPKR(stats.expenses))}</div>
             <div className="summary-label">Total Expenses</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>({formatPKR(stats.generalExpenses)} Exp + {formatPKR(stats.salaryTotal)} Salaries)</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>({maskValue('summ_exp', formatPKR(stats.generalExpenses))} Exp + {maskValue('summ_exp', formatPKR(stats.salaryTotal))} Salaries)</div>
           </div>
           <div className="summary-item">
-            <div className="summary-value" style={{ color: stats.profit >= 0 ? CHART_GREEN : CHART_RED }}>{formatPKR(stats.profit)}</div>
+            <div className="summary-header">
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_profit')}>
+                {visibleMetrics['summ_profit'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+              </button>
+            </div>
+            <div className="summary-value" style={{ color: stats.profit >= 0 ? CHART_GREEN : CHART_RED }}>{maskValue('summ_profit', formatPKR(stats.profit))}</div>
             <div className="summary-label">Net Profit</div>
           </div>
         </div>

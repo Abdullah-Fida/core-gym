@@ -13,6 +13,35 @@
   color: var(--text-muted);
   margin-bottom: 4px;
 }
+.stat-header, .summary-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+  margin-bottom: 8px;
+}
+
+.btn-hide-metric-sm, .btn-hide-metric-xs {
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-hide-metric-sm { width: 28px; height: 28px; }
+.btn-hide-metric-xs { width: 22px; height: 22px; margin-bottom: 8px; margin-left: auto; }
+
+.btn-hide-metric-sm:hover, .btn-hide-metric-xs:hover {
+  border-color: var(--accent-primary);
+  color: var(--accent-primary);
+  background: var(--accent-light);
+}
+
 .dash-live {
   display: flex;
   align-items: center;

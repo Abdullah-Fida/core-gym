@@ -57,7 +57,7 @@ export default function GymLayout() {
       <div className="gym-main-content">
         <header className="gym-header">
           <div className="gym-header-logo" onClick={() => navigate('/')}>
-            <div className="logo-icon">C</div>
+            <div className="logo-icon">CG</div>
             <h1>CORE<span>GYM</span></h1>
           </div>
           
