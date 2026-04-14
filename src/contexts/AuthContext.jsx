@@ -15,24 +15,30 @@ export function AuthProvider({ children }) {
     try {
       const response = await api.post('/auth/login', { email, password });
       const data = response.data;
-      
+
       if (data.success) {
+        const keysToKeep = ['core_gym_theme'];
+        for (let i = localStorage.length - 1; i >= 0; i--) {
+          const key = localStorage.key(i);
+          if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
+        }
+
         await clearLocalDatabase();
-        const gymUser = { 
-          email, 
-          role: data.role, 
-          name: data.role === 'admin' ? 'Super Admin' : data.gym.owner_name, 
+        const gymUser = {
+          email,
+          role: data.role,
+          name: data.role === 'admin' ? 'Super Admin' : data.gym.owner_name,
           gym_id: data.gym?.id,
           token: data.token
         };
         localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
         setUser(gymUser);
-        
+
         // Seed the database after login (only when online)
         if (gymUser.role === 'gym_owner' && navigator.onLine) {
           seedLocalDatabase();
         }
-        
+
         return { success: true, role: data.role };
       }
       return { success: false, error: 'Login failed' };
@@ -46,19 +52,25 @@ export function AuthProvider({ children }) {
 
   const switchSession = useCallback(async (data) => {
     // 1. Signal busy immediately to prevent dashboard "zero flicker"
-    notifySync(true); 
-    
+    notifySync(true);
+
+    const keysToKeep = ['core_gym_theme'];
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
+    }
+
     await clearLocalDatabase();
-    const gymUser = { 
-      email: data.gym.email, 
-      role: data.role, 
-      name: data.gym.owner_name, 
+    const gymUser = {
+      email: data.gym.email,
+      role: data.role,
+      name: data.gym.owner_name,
       gym_id: data.gym.id,
       token: data.token
     };
     localStorage.setItem('core_gym_user', JSON.stringify(gymUser));
     setUser(gymUser);
-    
+
     // 2. Start the seeding process (it will call notifySync(false) when done)
     if (navigator.onLine) {
       seedLocalDatabase();
@@ -85,7 +97,11 @@ export function AuthProvider({ children }) {
   }, [user?.role]);
 
   const logout = useCallback(async () => {
-    localStorage.removeItem('core_gym_user');
+    const keysToKeep = ['core_gym_theme'];
+    for (let i = localStorage.length - 1; i >= 0; i--) {
+      const key = localStorage.key(i);
+      if (key && !keysToKeep.includes(key)) localStorage.removeItem(key);
+    }
     setUser(null);
     await clearLocalDatabase();
   }, []);
@@ -93,6 +109,30 @@ export function AuthProvider({ children }) {
   // NOTE: seedLocalDatabase is no longer called on every page load.
   // It is called only on fresh login (above) and after sync completes (in useSync.js).
   // This prevents wiping offline data when the page reloads while online.
+
+  // Active session polling for suspension check
+  useEffect(() => {
+    if (!user || user.role !== 'gym_owner') return;
+
+    const interval = setInterval(async () => {
+      try {
+        await api.get('/auth/verify');
+      } catch (err) {
+        // Global interceptor handles the logout automatically
+      }
+    }, 30000); // Check every 30 seconds
+
+    return () => clearInterval(interval);
+  }, [user]);
+
+  // ── Session Verification: Check suspension on mount/refresh ──
+  useEffect(() => {
+    if (user && user.role === 'gym_owner' && navigator.onLine) {
+      api.get('/auth/verify').catch(() => {
+        // Interceptor handles logout if suspended
+      });
+    }
+  }, []);
 
   const isAdmin = user?.role === 'admin';
   const isGymOwner = user?.role === 'gym_owner';

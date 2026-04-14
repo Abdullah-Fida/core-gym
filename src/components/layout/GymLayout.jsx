@@ -39,7 +39,7 @@ export default function GymLayout() {
     return () => main.removeEventListener('scroll', handleScroll);
   }, [location.pathname, location.search, saveScroll]);
 
-  // Restore scroll after route change
+  // Restore scroll and Verify session on route change
   useEffect(() => {
     const main = mainRef.current;
     if (main) {
@@ -49,7 +49,19 @@ export default function GymLayout() {
         main.scrollTo({ top: saved, behavior: 'instant' });
       }, 50);
     }
-  }, [location.pathname, location.search, getScroll]);
+
+    // Proactive suspension check on every "page go"
+    const checkSuspension = async () => {
+      try {
+        const { default: api } = await import('../../lib/api');
+        await api.get('/auth/verify');
+      } catch (e) {
+        // Interceptor handles logout
+      }
+    };
+    
+    if (online) checkSuspension();
+  }, [location.pathname, location.search, getScroll, online]);
 
   return (
     <div className="gym-layout">
@@ -60,7 +72,7 @@ export default function GymLayout() {
             <div className="logo-icon">CG</div>
             <h1>CORE<span>GYM</span></h1>
           </div>
-          
+
           <div className="gym-header-actions">
             {isSyncing && <Cloud size={16} className="spin" style={{ color: 'var(--accent-primary)' }} title="Syncing..." />}
             {!online ? (

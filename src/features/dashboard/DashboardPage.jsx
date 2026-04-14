@@ -23,7 +23,7 @@ import '../../styles/loading.css';
 
 ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
 
-const CHART_ORANGE = '#4f46e5'; 
+const CHART_ORANGE = '#4f46e5';
 const CHART_BLACK = '#111827';
 const CHART_GRAY = '#f1f5f9';
 const CHART_GREEN = '#10b981';
@@ -34,22 +34,19 @@ export default function DashboardPage() {
   const { user } = useAuth();
   const [activeTab, setActiveTab] = useState('revenue');
   const { isSyncing } = useSync();
-  const [visibleMetrics, setVisibleMetrics] = useState({});
+  const [hiddenMetrics, setHiddenMetrics] = useState(new Set());
 
-  const toggleMetric = (e, id) => {
+  const toggleMetric = (e, key) => {
     e.stopPropagation();
-    // If undefined (default), set to false (hide). Otherwise flip.
-    setVisibleMetrics(prev => ({ 
-      ...prev, 
-      [id]: prev[id] === undefined ? false : !prev[id] 
-    }));
+    setHiddenMetrics(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
   };
 
-  const maskValue = (id, value) => {
-    // Hidden only if explicitly set to false
-    if (visibleMetrics[id] === false) return '••••••';
-    return value;
-  };
+  const isHidden = (key) => hiddenMetrics.has(key);
 
   // ── LIVE QUERY: Reactive Dashboard Data ──
   const dashboardData = useLiveQuery(async () => {
@@ -70,11 +67,11 @@ export default function DashboardPage() {
       const activeMembers = allMembers.filter(m => m.status === 'active').length;
       const expiredCount = allMembers.filter(m => m.status === 'expired').length;
       const dueSoonCount = allMembers.filter(m => m.status === 'due_soon').length;
-      
+
       const now = new Date();
       const thisMonth = now.getMonth();
       const thisYear = now.getFullYear();
-      
+
       const thisMonthPayments = allPayments.filter(p => {
         const d = new Date(p.payment_date);
         return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
@@ -86,10 +83,10 @@ export default function DashboardPage() {
         return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
       });
       const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-      
+
       const thisMonthStaffPayments = allStaffPayments.filter(p => p.month === thisMonth + 1 && p.year === thisYear);
       const salaryTotal = thisMonthStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
-      const totalExp = monthGeneralExpenses + salaryTotal; 
+      const totalExp = monthGeneralExpenses + salaryTotal;
 
       // 6 Month Trend
       const trend = [];
@@ -98,7 +95,7 @@ export default function DashboardPage() {
         d.setMonth(d.getMonth() - i);
         const m = d.getMonth();
         const y = d.getFullYear();
-        
+
         const mPayments = allPayments.filter(p => {
           const pd = new Date(p.payment_date);
           return pd.getMonth() === m && pd.getFullYear() === y;
@@ -110,7 +107,7 @@ export default function DashboardPage() {
         });
         const mStaffPayments = allStaffPayments.filter(p => p.month === m + 1 && p.year === y);
         const mSal = mStaffPayments.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
-        
+
         const mRev = mPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
         const mExp = mExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0) + mSal;
 
@@ -160,17 +157,21 @@ export default function DashboardPage() {
     plugins: { legend: { display: false }, tooltip: { backgroundColor: CHART_BLACK, titleColor: '#fff', bodyColor: '#ccc', borderColor: CHART_ORANGE, borderWidth: 1, cornerRadius: 0 } },
     scales: {
       x: { grid: { display: false }, ticks: { color: '#888', font: { weight: '700', size: 10 } }, border: { color: CHART_GRAY } },
-      y: { grid: { color: '#f0f0f0' }, ticks: { color: '#888', font: { weight: '600', size: 10 }, callback: v => v >= 1000 ? `${v/1000}K` : v }, border: { color: CHART_GRAY } }
+      y: { grid: { color: '#f0f0f0' }, ticks: { color: '#888', font: { weight: '600', size: 10 }, callback: v => v >= 1000 ? `${v / 1000}K` : v }, border: { color: CHART_GRAY } }
     }
   };
 
   const revenueChartData = {
     labels: trendLabels,
     datasets: [
-      { label: 'Revenue', data: revenueData, backgroundColor: CHART_ORANGE, borderColor: CHART_ORANGE, borderWidth: 2,
-        hoverBackgroundColor: '#e85f00' },
-      { label: 'Expenses', data: expenseData, backgroundColor: CHART_GRAY, borderColor: '#bbb', borderWidth: 2,
-        hoverBackgroundColor: '#ccc' },
+      {
+        label: 'Revenue', data: revenueData, backgroundColor: CHART_ORANGE, borderColor: CHART_ORANGE, borderWidth: 2,
+        hoverBackgroundColor: '#e85f00'
+      },
+      {
+        label: 'Expenses', data: expenseData, backgroundColor: CHART_GRAY, borderColor: '#bbb', borderWidth: 2,
+        hoverBackgroundColor: '#ccc'
+      },
     ]
   };
 
@@ -205,12 +206,12 @@ export default function DashboardPage() {
   };
 
   const statCards = [
-    { id: 'active_m', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
-    { id: 'expired_m', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
-    { id: 'due_m', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
-    { id: 'm_rev', label: 'Month Revenue', value: formatPKR(stats.revenue), icon: TrendingUp, color: CHART_ORANGE, pct: 'Total collected', onClick: () => navigate('/payments') },
-    { id: 'm_exp', label: 'Total Expenses', value: formatPKR(stats.expenses), icon: TrendingDown, color: CHART_RED, pct: `Incl. ${formatPKR(stats.salaryTotal)} Salaries`, onClick: () => navigate('/expenses/summary') },
-    { id: 'm_profit', label: 'Net Profit', value: formatPKR(stats.profit), icon: DollarSign, color: (stats.profit || 0) >= 0 ? CHART_GREEN : CHART_RED, pct: (stats.profit || 0) >= 0 ? '▲ Profitable' : '▼ Loss', onClick: () => navigate('/expenses/summary') },
+    { key: 'active', label: 'Active Members', value: stats.activeMembers, icon: Users, color: CHART_GREEN, pct: `${Math.round((stats.activeMembers / stats.totalMembers) * 100) || 0}% of total`, onClick: () => navigate('/members?status=active') },
+    { key: 'expired', label: 'Expired', value: stats.expiredCount, icon: AlertTriangle, color: CHART_RED, pct: 'Must renew now', onClick: () => navigate('/members?status=expired') },
+    { key: 'due', label: 'Due Soon', value: stats.dueSoonCount, icon: Clock, color: '#e8a000', pct: 'Remind them soon', onClick: () => navigate('/members?status=due_soon') },
+    { key: 'revenue', label: 'Month Revenue', value: formatPKR(stats.revenue), icon: TrendingUp, color: CHART_ORANGE, pct: 'Total collected', onClick: () => navigate('/payments') },
+    { key: 'expenses', label: 'Total Expenses', value: formatPKR(stats.expenses), icon: TrendingDown, color: CHART_RED, pct: `Incl. ${formatPKR(stats.salaryTotal)} Salaries`, onClick: () => navigate('/expenses/summary') },
+    { key: 'profit', label: 'Net Profit', value: formatPKR(stats.profit), icon: DollarSign, color: (stats.profit || 0) >= 0 ? CHART_GREEN : CHART_RED, pct: (stats.profit || 0) >= 0 ? '▲ Profitable' : '▼ Loss', onClick: () => navigate('/expenses/summary') },
   ];
 
   return (
@@ -231,15 +232,17 @@ export default function DashboardPage() {
       <div className="stats-grid">
         {statCards.map((s, i) => (
           <div key={i} className={'stat-card'} style={{ '--stat-color': s.color, cursor: s.onClick ? 'pointer' : 'default' }} onClick={s.onClick}>
-            <div className="stat-header">
+            <div className="stat-card-header">
               <div className="stat-icon" style={{ background: s.color + '18' }}>
                 <s.icon size={20} style={{ color: s.color }} />
               </div>
-              <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.id)}>
-                 {visibleMetrics[s.id] === false ? <EyeOff size={14} /> : <Eye size={14} />}
+              <button className="btn-hide-metric-sm" onClick={(e) => toggleMetric(e, s.key)}>
+                {isHidden(s.key) ? <Eye size={14} /> : <EyeOff size={14} />}
               </button>
             </div>
-            <div className="stat-value" style={{ color: s.color }}>{maskValue(s.id, s.value)}</div>
+            <div className={`stat-value ${isHidden(s.key) ? 'masked-value' : ''}`} style={{ color: s.color }}>
+              {isHidden(s.key) ? '••••••' : s.value}
+            </div>
             <div className="stat-label">{s.label}</div>
             <div className="stat-pct">{s.pct}</div>
           </div>
@@ -287,7 +290,7 @@ export default function DashboardPage() {
                 </div>
               </div>
               <div style={{ height: 200 }}>
-                <Line data={profitChartData} options={{ ...baseChartOpts, scales: { ...baseChartOpts.scales, y: { ...baseChartOpts.scales.y, ticks: { ...baseChartOpts.scales.y.ticks, callback: v => v >= 1000 ? `${v/1000}K` : v >= 0 ? v : `-${Math.abs(v) >= 1000 ? Math.abs(v)/1000 + 'K' : Math.abs(v)}` } } } }} />
+                <Line data={profitChartData} options={{ ...baseChartOpts, scales: { ...baseChartOpts.scales, y: { ...baseChartOpts.scales.y, ticks: { ...baseChartOpts.scales.y.ticks, callback: v => v >= 1000 ? `${v / 1000}K` : v >= 0 ? v : `-${Math.abs(v) >= 1000 ? Math.abs(v) / 1000 + 'K' : Math.abs(v)}` } } } }} />
               </div>
             </>
           )}
@@ -295,7 +298,7 @@ export default function DashboardPage() {
           {activeTab === 'members' && (
             <>
               <div className="chart-header">
-                  <div className="chart-subtitle">{stats.totalMembers} total members</div>
+                <div className="chart-subtitle">{stats.totalMembers} total members</div>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-lg)' }}>
                 <div style={{ width: 140, height: 140, flexShrink: 0 }}>
@@ -326,31 +329,37 @@ export default function DashboardPage() {
         <div className="section-title">THIS MONTH</div>
         <div className="summary-grid">
           <div className="summary-item">
-            <div className="summary-header">
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_rev')}>
-                {visibleMetrics['summ_rev'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+            <div className="summary-item-header">
+              <div className={`summary-value ${isHidden('summary-rev') ? 'masked-value' : ''}`} style={{ color: CHART_ORANGE }}>
+                {isHidden('summary-rev') ? '••••••' : formatPKR(stats.revenue)}
+              </div>
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-rev')}>
+                {isHidden('summary-rev') ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             </div>
-            <div className="summary-value" style={{ color: CHART_ORANGE }}>{maskValue('summ_rev', formatPKR(stats.revenue))}</div>
             <div className="summary-label">Revenue</div>
           </div>
           <div className="summary-item">
-            <div className="summary-header">
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_exp')}>
-                {visibleMetrics['summ_exp'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+            <div className="summary-item-header">
+              <div className={`summary-value ${isHidden('summary-exp') ? 'masked-value' : ''}`} style={{ color: CHART_RED }}>
+                {isHidden('summary-exp') ? '••••••' : formatPKR(stats.expenses)}
+              </div>
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-exp')}>
+                {isHidden('summary-exp') ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             </div>
-            <div className="summary-value" style={{ color: CHART_RED }}>{maskValue('summ_exp', formatPKR(stats.expenses))}</div>
             <div className="summary-label">Total Expenses</div>
-            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>({maskValue('summ_exp', formatPKR(stats.generalExpenses))} Exp + {maskValue('summ_exp', formatPKR(stats.salaryTotal))} Salaries)</div>
+            <div style={{ fontSize: 10, color: 'var(--text-muted)' }}>({formatPKR(stats.generalExpenses)} Exp + {formatPKR(stats.salaryTotal)} Salaries)</div>
           </div>
           <div className="summary-item">
-            <div className="summary-header">
-              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summ_profit')}>
-                {visibleMetrics['summ_profit'] === false ? <EyeOff size={12} /> : <Eye size={12} />}
+            <div className="summary-item-header">
+              <div className={`summary-value ${isHidden('summary-profit') ? 'masked-value' : ''}`} style={{ color: stats.profit >= 0 ? CHART_GREEN : CHART_RED }}>
+                {isHidden('summary-profit') ? '••••••' : formatPKR(stats.profit)}
+              </div>
+              <button className="btn-hide-metric-xs" onClick={(e) => toggleMetric(e, 'summary-profit')}>
+                {isHidden('summary-profit') ? <Eye size={12} /> : <EyeOff size={12} />}
               </button>
             </div>
-            <div className="summary-value" style={{ color: stats.profit >= 0 ? CHART_GREEN : CHART_RED }}>{maskValue('summ_profit', formatPKR(stats.profit))}</div>
             <div className="summary-label">Net Profit</div>
           </div>
         </div>

@@ -67,8 +67,8 @@ export default function AdminGymDetailPage() {
       if (res.data.success) {
         await switchSession(res.data);
         toast.success(`Switched to ${gym.gym_name}`);
-        // Hard reload ensures the axios interceptor picks up the NEW token for seeding
-        window.location.href = '/dashboard'; 
+        // Client-side navigation to maintain background seed process
+        navigate('/dashboard'); 
       }
     } catch (err) {
       toast.error('Failed to proxy login');

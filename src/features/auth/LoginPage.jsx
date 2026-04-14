@@ -13,12 +13,25 @@ export default function LoginPage() {
   const { login } = useAuth();
   const navigate = useNavigate();
 
+  // Handle redirects from suspension
+  useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('suspended') === '1') {
+      setError('Your gym access has been suspended by the admin. Please contact support at 03069005213.');
+      // remove the query param safely
+      window.history.replaceState(null, '', '/login');
+    } else if (params.get('expired') === '1') {
+      setError('Your session has expired. Please log in again.');
+      window.history.replaceState(null, '', '/login');
+    }
+  });
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     if (!email || !password) { setError('Please enter email and password'); return; }
     setLoading(true);
-    
+
     const result = await login(email, password);
     if (result.success) {
       if (result.role === 'admin') navigate('/admin/dashboard');
