@@ -97,6 +97,17 @@ export function AuthProvider({ children }) {
   }, [user?.role]);
 
   const logout = useCallback(async () => {
+    // CRITICAL: Flush any pending sync tasks to the server BEFORE wiping local DB
+    // This prevents data loss when the user added data but it wasn't synced yet
+    if (navigator.onLine) {
+      try {
+        const { flushSyncQueue } = await import('../lib/db');
+        await flushSyncQueue();
+      } catch (err) {
+        console.error('[Auth] Failed to flush sync queue before logout:', err);
+      }
+    }
+
     const keysToKeep = ['core_gym_theme'];
     for (let i = localStorage.length - 1; i >= 0; i--) {
       const key = localStorage.key(i);

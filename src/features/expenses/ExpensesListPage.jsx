@@ -1,13 +1,15 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus } from 'lucide-react';
-import api from '../../lib/api';
+import { useLiveQuery } from 'dexie-react-hooks';
 import { formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
+import { ModernLoader } from '../../components/common/ModernLoader';
 import { useSync } from '../../hooks/useSync';
 import { db } from '../../lib/db';
 import '../../styles/members.css';
+import '../../styles/loading.css';
 
 export default function ExpensesListPage() {
   const navigate = useNavigate();
@@ -15,39 +17,32 @@ export default function ExpensesListPage() {
   const [month, setMonth] = useState(getCurrentMonth());
   const [category, setCategory] = useState('');
   const year = getCurrentYear();
-  const { isSyncing, online } = useSync();
-  
-  const [allExpenses, setAllExpenses] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
+  const { isSyncing } = useSync();
 
-  const fetchExpenses = async () => {
-    setLoading(true);
-    setError(null);
+  // ── LIVE QUERY: Reactive to Dexie changes (auto-refreshes on add/update/delete) ──
+  const expenseData = useLiveQuery(async () => {
     try {
-      // Always read from local Dexie (offline-first approach)
-      // The sync mechanism keeps Dexie in sync with the server
       const localExps = await db.expenses.toArray();
+
+      // If DB is empty and syncing, show loader
+      if (localExps.length === 0 && isSyncing) return null;
+
       const filtered = localExps.filter(e => {
         const d = new Date(e.expense_date);
         if (d.getMonth() + 1 !== month || d.getFullYear() !== year) return false;
         if (category && e.category !== category) return false;
         return true;
       });
-      setAllExpenses(filtered);
-    } catch (err) {
-      console.error('Failed to fetch expenses from local DB', err);
-      setError('Failed to load expenses');
-    } finally {
-      setLoading(false);
-    }
-  };
 
-  useEffect(() => {
-    if (!isSyncing) {
-      fetchExpenses();
+      return filtered;
+    } catch (e) {
+      console.error('Expenses live query error:', e);
+      return [];
     }
-  }, [month, year, category, online, isSyncing]);
+  }, [month, year, category, isSyncing]);
+
+  const loading = !expenseData && isSyncing;
+  const allExpenses = expenseData || [];
 
   const staffSalaries = allExpenses.filter(e => e.is_staff_salary);
   const otherExpenses = allExpenses.filter(e => !e.is_staff_salary);
@@ -79,16 +74,9 @@ export default function ExpensesListPage() {
 
       <div className="expenses-content">
         {loading ? (
-          <div className="skeleton-container">
-            {[1, 2, 3, 4].map(i => <MemberSkeleton key={i} />)}
+          <div style={{ padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
+            <ModernLoader type="morph" text="Syncing Expenses..." />
           </div>
-        ) : error ? (
-          <StateView 
-            type="error" 
-            title="Failed to load expenses" 
-            description={error} 
-            onRetry={fetchExpenses} 
-          />
         ) : allExpenses.length === 0 ? (
           <StateView 
             type="empty" 

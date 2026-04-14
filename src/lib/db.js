@@ -88,48 +88,32 @@ export async function seedLocalDatabase() {
 
     if (membersData !== null) {
       console.log(`[DB] Sync: Fetched ${membersData.length} members from server.`);
-      const localMemberCount = await db.members.count();
-      if (membersData.length === 0 && localMemberCount > 0) {
-        console.warn(`[DB] Server returned 0 members but ${localMemberCount} exist locally. Keeping local data.`);
-      } else if (membersData.length > 0) {
-        await db.members.clear();
+      if (membersData.length > 0) {
+        // SAFE MERGE: Use bulkPut (upsert) instead of clear + bulkPut
+        // This ensures local-only records (not yet synced) are NOT wiped.
         await db.members.bulkPut(membersData.map(m => ({ ...m, last_sync: now })));
-        console.log(`[DB] Seeded ${membersData.length} members.`);
+        console.log(`[DB] Merged ${membersData.length} members from server.`);
       }
     }
 
     if (paymentsData !== null) {
       console.log(`[DB] Sync: Fetched ${paymentsData.length} payments from server.`);
-      const localPaymentCount = await db.payments.count();
-      if (paymentsData.length === 0 && localPaymentCount > 0) {
-        console.warn(`[DB] Server returned 0 payments but ${localPaymentCount} exist locally. Keeping local data.`);
-      } else if (paymentsData.length > 0) {
-        await db.payments.clear();
+      if (paymentsData.length > 0) {
         await db.payments.bulkPut(paymentsData.map(p => ({ ...p, last_sync: now })));
-        console.log(`[DB] Seeded ${paymentsData.length} payments.`);
+        console.log(`[DB] Merged ${paymentsData.length} payments from server.`);
       }
     }
 
     if (expensesData !== null) {
       console.log(`[DB] Sync: Fetched ${expensesData.length} expenses from server.`);
-      const localExpenseCount = await db.expenses.count();
-      if (expensesData.length === 0 && localExpenseCount > 0) {
-        console.warn(`[DB] Server returned 0 expenses but ${localExpenseCount} exist locally. Keeping local data.`);
-      } else if (expensesData.length > 0) {
-        await db.expenses.clear();
+      if (expensesData.length > 0) {
         await db.expenses.bulkPut(expensesData.map(e => ({ ...e, last_sync: now })));
-        console.log(`[DB] Seeded ${expensesData.length} expenses.`);
+        console.log(`[DB] Merged ${expensesData.length} expenses from server.`);
       }
     }
 
     if (staffData !== null) {
-      const localStaffCount = await db.staff.count();
-      if (staffData.length === 0 && localStaffCount > 0) {
-        console.warn(`[DB] Server returned 0 staff. Keeping local data.`);
-      } else if (staffData.length > 0) {
-        await db.staff.clear();
-        await db.staff_payments.clear();
-        
+      if (staffData.length > 0) {
         const allPayments = [];
         const staffList = staffData.map(s => {
           if (s.staff_payments) {
@@ -141,7 +125,7 @@ export async function seedLocalDatabase() {
 
         await db.staff.bulkPut(staffList);
         await db.staff_payments.bulkPut(allPayments);
-        console.log(`[DB] Seeded ${staffList.length} staff and ${allPayments.length} salaries.`);
+        console.log(`[DB] Merged ${staffList.length} staff and ${allPayments.length} salaries.`);
       }
     }
 
@@ -168,7 +152,8 @@ export async function cleanupOldLocalData() {
 }
 
 /**
- * Add an operation to the sync queue
+ * Add an operation to the sync queue.
+ * Dispatches 'sync-queue-updated' so useSync processes it immediately.
  */
 export async function queueSyncTask(type, operation, payload) {
   await db.sync_queue.add({
@@ -177,4 +162,61 @@ export async function queueSyncTask(type, operation, payload) {
     payload,
     timestamp: new Date().toISOString()
   });
+  // Signal useSync to process the queue immediately (don't wait for 15s retry)
+  window.dispatchEvent(new CustomEvent('sync-queue-updated'));
+}
+
+/**
+ * Flush the sync queue: process all pending tasks immediately.
+ * Used before logout to ensure no data is lost.
+ * Returns true if all tasks were synced, false if some failed.
+ */
+export async function flushSyncQueue() {
+  const queue = await db.sync_queue.toArray();
+  if (queue.length === 0) return true;
+
+  console.log(`[DB] Flushing ${queue.length} pending sync tasks before logout...`);
+  
+  // Dynamic import to avoid circular dependency
+  const { default: api } = await import('./api');
+  
+  let allSynced = true;
+
+  for (const task of queue) {
+    try {
+      if (task.type === 'member') {
+        if (task.operation === 'CREATE') await api.post('/members', task.payload);
+        else if (task.operation === 'UPDATE') await api.put(`/members/${task.payload.id}`, task.payload);
+        else if (task.operation === 'DELETE') await api.delete(`/members/${task.payload.id}`);
+      } else if (task.type === 'payment') {
+        if (task.operation === 'CREATE') await api.post('/payments', task.payload);
+      } else if (task.type === 'expense') {
+        if (task.operation === 'CREATE') await api.post('/expenses', task.payload);
+        else if (task.operation === 'UPDATE') await api.put(`/expenses/${task.payload.id}`, task.payload);
+        else if (task.operation === 'DELETE') await api.delete(`/expenses/${task.payload.id}`);
+      } else if (task.type === 'staff') {
+        if (task.operation === 'CREATE') await api.post('/staff', task.payload);
+        else if (task.operation === 'UPDATE') await api.put(`/staff/${task.payload.id}`, task.payload);
+        else if (task.operation === 'DELETE') await api.delete(`/staff/${task.payload.id}`);
+      } else if (task.type === 'staff_payment') {
+        if (task.operation === 'CREATE') await api.post(`/staff/${task.payload.staff_id}/salary`, task.payload);
+        else if (task.operation === 'DELETE') await api.delete(`/staff/${task.payload.staff_id}/salary/${task.payload.id}`);
+      }
+
+      await db.sync_queue.delete(task.id);
+      console.log(`[DB] Flush ✓ ${task.type}/${task.operation}`);
+    } catch (err) {
+      const msg = err.response?.data?.message || err.message || '';
+      const status = err.response?.status;
+      // Treat duplicates/conflicts as success
+      if (status === 409 || status === 404 || msg.includes('duplicate') || msg.includes('already exists') || msg.includes('conflict')) {
+        await db.sync_queue.delete(task.id);
+        continue;
+      }
+      console.error(`[DB] Flush ✗ ${task.type}/${task.operation}:`, msg);
+      allSynced = false;
+    }
+  }
+
+  return allSynced;
 }
