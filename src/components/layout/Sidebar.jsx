@@ -12,7 +12,7 @@ import './layout.css';
 export default function Sidebar() {
   const navigate = useNavigate();
   const location = useLocation();
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const [pendingCount, setPendingCount] = useState(0);
 
   useEffect(() => {
@@ -79,8 +79,8 @@ export default function Sidebar() {
   return (
     <aside className="sidebar">
       <div className="sidebar-logo">
-        <div className="logo-icon">CG</div>
-        <h1>Core<span>Gym</span></h1>
+        <div className="logo-icon">{user?.gym_name ? user.gym_name.substring(0, 2).toUpperCase() : 'CG'}</div>
+        <h1>{user?.gym_name || 'CoreGym'}</h1>
       </div>
 
       <nav className="sidebar-nav">

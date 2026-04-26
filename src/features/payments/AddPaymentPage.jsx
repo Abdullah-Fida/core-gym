@@ -9,11 +9,13 @@ import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import { db, queueSyncTask } from '../../lib/db';
 import { generateId } from '../../lib/utils';
+import { useAuth } from '../../contexts/AuthContext';
 import '../../styles/payments.css';
 
 export default function AddPaymentPage() {
   const navigate = useNavigate();
   const toast = useToast();
+  const { user } = useAuth();
   const [searchParams] = useSearchParams();
   const preselectedMemberId = searchParams.get('member') || '';
 
@@ -217,7 +219,7 @@ export default function AddPaymentPage() {
         return rest ? `${base} — ${rest}` : (base || 'Membership Fee');
       };
 
-      const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : 'Gym';
+      const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : (user?.gym_name || 'CORE GYM');
       const cleanNotes = r.notes ? String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim() : '';
 
       printThermalReceipt({

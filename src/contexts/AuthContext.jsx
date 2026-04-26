@@ -29,6 +29,7 @@ export function AuthProvider({ children }) {
           role: data.role,
           name: data.role === 'admin' ? 'Super Admin' : data.gym.owner_name,
           gym_id: data.gym?.id,
+          gym_name: data.gym?.gym_name,
           token: data.token
         };
         localStorage.setItem('core_gym_user', JSON.stringify(gymUser));

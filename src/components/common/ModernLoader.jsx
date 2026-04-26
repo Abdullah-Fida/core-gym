@@ -7,7 +7,7 @@ import '../../styles/loading.css';
  * @param {string} type - 'bar', 'fitness', or 'minimal'
  * @param {string} text - Optional text to show below
  */
-export function ModernLoader({ type = 'fitness', text = 'Loading Core Gym...' }) {
+export function ModernLoader({ type = 'fitness', text = 'Preparing Your Gym...' }) {
   if (type === 'bar') {
     return (
       <div className="premium-loader-container" style={{ width: '100%', padding: '20px 0' }}>

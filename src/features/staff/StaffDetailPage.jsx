@@ -138,7 +138,7 @@ export default function StaffDetailPage() {
 
   const printSalaryReceipt = (data) => {
     printThermalReceipt({
-      gymName: data.gymName || 'CORE GYM',
+      gymName: user?.gym_name || 'CORE GYM',
       invoiceId: data.id,
       memberName: data.staffName,
       memberPhone: data.staffPhone,
@@ -222,7 +222,6 @@ export default function StaffDetailPage() {
                   style={{ padding: 6, minWidth: 'auto' }}
                   title="Print Receipt"
                   onClick={() => {
-                    const gymSettings = JSON.parse(localStorage.getItem('core_gym_settings') || '{}');
                     printSalaryReceipt({
                       id: sp.id,
                       staffName: staff.name,
@@ -231,7 +230,7 @@ export default function StaffDetailPage() {
                       month: sp.month, year: sp.year,
                       paidDate: sp.paid_date,
                       paymentMethod: sp.payment_method,
-                      gymName: gymSettings.gym_name || 'CORE GYM',
+                      gymName: user?.gym_name || 'CORE GYM',
                     });
                   }}
                 >
