@@ -88,23 +88,9 @@ export default function EditExpensePage() {
     try {
       const updatedData = { ...form, amount: Number(form.amount) };
 
-      // Always save to local DB first
+      // Always save to local DB first, then queue for sync (same pattern as all other pages)
       await db.expenses.put({ ...updatedData, last_sync: null });
-
-      if (online) {
-        try {
-          await api.put(`/expenses/${id}`, updatedData);
-          // Update local with sync timestamp
-          await db.expenses.put({ ...updatedData, last_sync: new Date().toISOString() });
-        } catch (apiErr) {
-          // API failed — queue for later sync
-          console.warn('Online update failed, queuing for sync', apiErr);
-          await queueSyncTask('expense', 'UPDATE', updatedData);
-        }
-      } else {
-        // Offline — queue for sync
-        await queueSyncTask('expense', 'UPDATE', updatedData);
-      }
+      await queueSyncTask('expense', 'UPDATE', updatedData);
 
       toast.success('Expense updated!');
       clearDraft();

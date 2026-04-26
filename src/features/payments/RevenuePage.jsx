@@ -76,10 +76,10 @@ export default function RevenuePage() {
       const d = new Date(p.payment_date);
       return d.getMonth() + 1 === prevMonth && d.getFullYear() === prevYear;
     });
-    prevTotal = prevPayments.reduce((s, p) => s + p.amount, 0);
+    prevTotal = prevPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
   }
 
-  const total = payments.reduce((s, p) => s + p.amount, 0);
+  const total = payments.reduce((s, p) => s + Number(p.amount || 0), 0);
   const change = prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : 0;
 
   // Breakdown by duration
@@ -92,13 +92,13 @@ export default function RevenuePage() {
     total: payments.filter(pay_item => {
       if (d.value === 'custom') return pay_item.plan_duration_months === 'custom' || pay_item.plan_duration_months === 0;
       return String(pay_item.plan_duration_months) === String(d.value);
-    }).reduce((s, pay_item) => s + pay_item.amount, 0),
+    }).reduce((s, pay_item) => s + Number(pay_item.amount || 0), 0),
   }));
   // Breakdown by method
   const byMethod = PAYMENT_METHODS.map(m => ({
     label: m.label,
     count: payments.filter(pay_item => pay_item.payment_method === m.value).length,
-    total: payments.filter(pay_item => pay_item.payment_method === m.value).reduce((s, pay_item) => s + pay_item.amount, 0),
+    total: payments.filter(pay_item => pay_item.payment_method === m.value).reduce((s, pay_item) => s + Number(pay_item.amount || 0), 0),
   }));
 
   return (

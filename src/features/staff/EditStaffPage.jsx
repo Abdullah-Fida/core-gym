@@ -95,9 +95,26 @@ export default function EditStaffPage() {
         <div className="form-group"><label className="form-label">Monthly Salary (PKR)</label><input className="form-input" type="number" value={form.monthly_salary || ''} onChange={e => set('monthly_salary', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Status</label><select className="form-select" value={form.status || 'active'} onChange={e => set('status', e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="terminated">Terminated</option></select></div>
         <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" value={form.notes || ''} onChange={e => set('notes', e.target.value)} /></div>
-        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={isSaving}>
-          {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Update</>}
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+          <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={isSaving}>
+            {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Update</>}
+          </button>
+          <button 
+            type="button" 
+            className="btn btn-danger btn-lg" 
+            onClick={async () => {
+              if (window.confirm('Are you sure you want to delete this staff member?')) {
+                // DO NOT cascade delete payments
+                await db.staff.update(id, { status: 'deleted' });
+                await queueSyncTask('staff', 'DELETE', { id });
+                toast.success('Staff removed locally');
+                navigate('/staff');
+              }
+            }}
+          >
+            Delete
+          </button>
+        </div>
       </form>
     </div>
   );

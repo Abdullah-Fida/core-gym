@@ -55,8 +55,9 @@ export default function AttendancePage() {
       }
       const results = await db.members
         .filter(m => 
-          m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          m.phone.includes(searchTerm)
+          m.status !== 'deleted' &&
+          (m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
+          m.phone.includes(searchTerm))
         )
         .limit(10)
         .toArray();

@@ -72,6 +72,10 @@ export function useSync() {
           } else if (task.operation === 'DELETE') {
             await api.delete(`/staff/${task.payload.staff_id}/salary/${task.payload.id}`);
           }
+        } else if (task.type === 'attendance') {
+          if (task.operation === 'CREATE' || task.operation === 'POST') {
+            await api.post('/attendance', task.payload);
+          }
         }
         
         // If success, remove from queue

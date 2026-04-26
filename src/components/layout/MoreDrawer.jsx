@@ -28,7 +28,7 @@ export default function MoreDrawer({ isOpen, onClose }) {
     { icon: Receipt, label: 'Expenses', path: '/expenses', color: '#f87171' },
     { icon: UserSquare, label: 'Staff', path: '/staff', color: '#60a5fa' },
     { icon: CalendarCheck, label: 'Attendance', path: '/attendance', color: '#34d399' },
-    { icon: FileText, label: 'Reports', path: '/reports/financial', color: '#fbbf24' },
+    { icon: FileText, label: 'Reports', path: '/expenses/summary', color: '#fbbf24' },
     { icon: Settings, label: 'Settings', path: '/settings', color: '#8b5cf6' },
   ];
 

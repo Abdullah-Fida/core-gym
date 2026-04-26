@@ -39,21 +39,32 @@ export default function MembersListPage() {
       }
 
       let results = await query.toArray();
+      results = results.filter(m => m.status !== 'deleted');
       
       // IF DB IS EMPTY AND WE ARE ONLINE: Return null so loader shows
       if (results.length === 0 && isSyncing) return null;
+
+      // Join last payment date from payments table
+      const allPayments = await db.payments.toArray();
+      const paymentsByMember = {};
+      allPayments.forEach(p => {
+        if (!paymentsByMember[p.member_id] || p.payment_date > paymentsByMember[p.member_id].payment_date) {
+          paymentsByMember[p.member_id] = p;
+        }
+      });
 
       // Status calculation
       results = results.map(m => {
         const days = daysFromNow(m.latest_expiry);
         let status = m.status;
-        if (status !== 'inactive' && status !== 'trial') {
+        if (status !== 'inactive') {
           if (days === null) status = 'inactive';
           else if (days < 0) status = 'expired';
           else if (days <= 3) status = 'due_soon';
           else status = 'active';
         }
-        return { ...m, status };
+        const lastPayment = paymentsByMember[m.id] || null;
+        return { ...m, status, lastPayDate: lastPayment?.payment_date || null };
       });
 
       if (statusFilter !== 'all') {
@@ -66,8 +77,14 @@ export default function MembersListPage() {
       } else if (sort === 'join_date') {
         results.sort((a, b) => {
           const da = a.join_date ? new Date(a.join_date).getTime() : 0;
-          const db = b.join_date ? new Date(b.join_date).getTime() : 0;
-          return db - da;
+          const db2 = b.join_date ? new Date(b.join_date).getTime() : 0;
+          return db2 - da;
+        });
+      } else if (sort === 'overdue') {
+        results.sort((a, b) => {
+          const da = a.latest_expiry ? daysFromNow(a.latest_expiry) : 9999;
+          const db2 = b.latest_expiry ? daysFromNow(b.latest_expiry) : 9999;
+          return da - db2; // most overdue (most negative) first
         });
       }
 
@@ -95,13 +112,8 @@ export default function MembersListPage() {
     if (!isConfirmed) return;
     
     try {
-      // Cascade delete local payments
-      const localPayments = await db.payments.where('member_id').equals(id).toArray();
-      for (const p of localPayments) {
-        await db.payments.delete(p.id);
-      }
-      
-      await db.members.delete(id);
+      // DO NOT cascade delete payments locally either
+      await db.members.update(id, { status: 'deleted' });
       await queueSyncTask('member', 'DELETE', { id });
       
       toast.success('Member and all records deleted');
@@ -173,11 +185,6 @@ export default function MembersListPage() {
             const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
             const isExpired = member.status === 'expired' || (days !== null && days < 0);
             const isDueSoon = member.status === 'due_soon' || (days !== null && days >= 0 && days <= 3);
-            
-            let lastPayDate = null;
-            if (member.payments && Array.isArray(member.payments) && member.payments.length > 0) {
-              lastPayDate = member.payments[0].payment_date;
-            }
 
             return (
               <div key={member.id} className="member-card" onClick={() => navigate(`/members/${member.id}`)}>
@@ -202,8 +209,8 @@ export default function MembersListPage() {
                   <div className="member-days" style={{ color: isExpired ? 'var(--status-danger)' : isDueSoon ? 'var(--status-warning)' : member.status === 'inactive' ? 'var(--text-muted)' : 'var(--status-active)' }}>
                     {days === null ? 'No payment' : isExpired ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d left`}
                   </div>
-                  {lastPayDate && (
-                     <div className="member-last-pay">Last: {formatDateShort(lastPayDate)}</div>
+                  {member.lastPayDate && (
+                     <div className="member-last-pay">Last: {formatDateShort(member.lastPayDate)}</div>
                   )}
                 </div>
                 

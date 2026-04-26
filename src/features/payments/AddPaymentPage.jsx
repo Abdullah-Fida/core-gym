@@ -2,7 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { ArrowLeft, Save, Calendar, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
-import { todayStr, formatPKR, calculateExpiryDate, formatDate, formatDateTime, printReceiptContent } from '../../lib/utils';
+import { todayStr, formatPKR, calculateExpiryDate, formatDate, formatDateTime } from '../../lib/utils';
+import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
@@ -84,6 +85,7 @@ export default function AddPaymentPage() {
           const s = search.toLowerCase().trim();
           const allMembers = await db.members.toArray();
           const matches = allMembers.filter(m => {
+            if (m.status === 'deleted') return false;
             const nameMatch = (m.name || '').toLowerCase().includes(s);
             const phoneMatch = String(m.phone || '').includes(s);
             return nameMatch || phoneMatch;
@@ -206,30 +208,32 @@ export default function AddPaymentPage() {
 
   const printReceipt = (r) => {
     try {
-      const parseReason = (notes, amount) => {
+      const parseReason = (notes) => {
         if (!notes) return 'Membership Fee';
-        if (notes.includes('registration_fee:')) {
-          const regMatch = notes.match(/registration_fee:(\d+)/);
-          const regAmt = regMatch ? Number(regMatch[1]) : 0;
-          return `Membership: ${amount - regAmt} + Registration: ${regAmt}`;
-        }
         const m = String(notes).match(/payment_type:([a-z_]+);?/i);
         let base = m ? (m[1] === 'registration' ? 'Registration Fee' : m[1] === 'trial' ? 'Free Trial' : m[1] === 'membership' ? 'Membership Fee' : m[1]) : '';
-        const rest = String(notes).replace(/payment_type:[^;]+;?/, '').trim();
+        const rest = String(notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim();
         if (!base && rest) return rest;
         return rest ? `${base} — ${rest}` : (base || 'Membership Fee');
       };
 
       const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : 'Gym';
-      const printedAtStr = formatDateTime(new Date().toISOString());
-      const hasTime = r.payment_date && (String(r.payment_date).includes('T') || new Date(r.payment_date).getHours() || new Date(r.payment_date).getMinutes());
-      const paymentStr = hasTime ? formatDateTime(r.payment_date) : formatDate(r.payment_date || new Date().toISOString());
-      const reason = parseReason(r.notes || '', r.amount);
-      const receivedBy = r.received_by || r.receivedBy || '';
-      const memberPhone = r.member_phone || r.memberPhone || '';
-      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt</title><style>body{font-family: Arial; padding:20px;} .box{max-width:600px;border:1px solid #ddd;padding:20px;} h2{margin-top:0;} table{width:100%;border-collapse:collapse;} td{padding:8px;border-bottom:1px solid #eee;}</style></head><body><div class="box"><h2>${gymName}</h2><h3>Payment Receipt</h3><table><tr><td><strong>Invoice</strong></td><td>${shortId(r.id)}</td></tr><tr><td><strong>Payment Date</strong></td><td>${paymentStr}</td></tr><tr><td><strong>Printed At</strong></td><td>${printedAtStr}</td></tr><tr><td><strong>Member</strong></td><td>${r.member_name || r.member_id}${memberPhone ? ' • ' + memberPhone : ''}</td></tr><tr><td><strong>Amount</strong></td><td>${formatPKR(r.amount)}</td></tr><tr><td><strong>Method</strong></td><td>${r.payment_method || ''}</td></tr><tr><td><strong>Reason</strong></td><td>${reason}</td></tr>${r.expiry_date ? `<tr><td><strong>Valid Till</strong></td><td>${formatDate(r.expiry_date)}</td></tr>` : ''}${receivedBy ? `<tr><td><strong>Received By</strong></td><td>${receivedBy}</td></tr>` : ''}${(r.notes && String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/, '').trim()) ? `<tr><td><strong>Notes</strong></td><td>${String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/, '').trim()}</td></tr>` : ''}</table><p style="font-size:12px;color:#666;margin-top:12px">Thank you for your payment.</p></div><script>setTimeout(function(){ window.print(); }, 250);</script></body></html>`;
-      
-      printReceiptContent(html);
+      const cleanNotes = r.notes ? String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim() : '';
+
+      printThermalReceipt({
+        gymName,
+        invoiceId: r.id,
+        memberName: r.member_name || r.member_id,
+        memberPhone: r.member_phone || r.memberPhone || '',
+        amount: r.amount,
+        paymentDate: r.payment_date,
+        paymentMethod: r.payment_method,
+        expiryDate: r.expiry_date,
+        receivedBy: r.received_by || r.receivedBy || '',
+        reason: parseReason(r.notes || ''),
+        notes: cleanNotes || undefined,
+      });
+
       setShowReceipts(false);
       navigate(`/members/${form.member_id}`);
     } catch (e) { console.error(e); toast.error('Unable to print'); }

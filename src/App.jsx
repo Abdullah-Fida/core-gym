@@ -53,7 +53,6 @@ import NotificationsPage from './features/notifications/NotificationsPage';
 import SettingsPage from './features/settings/SettingsPage';
 import AttendancePage from './features/attendance/AttendancePage';
 import AttendanceScanner from './features/attendance/AttendanceScanner';
-import FinancialReportsPage from './features/reports/FinancialReportsPage';
 import AdminDashboardPage from './features/admin/AdminDashboardPage';
 import AdminGymsPage from './features/admin/AdminGymsPage';
 import AdminGymDetailPage from './features/admin/AdminGymDetailPage';
@@ -114,7 +113,6 @@ function AppRoutes() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="attendance" element={<AttendancePage />} />
         <Route path="attendance/scanner" element={<AttendanceScanner />} />
-        <Route path="reports/financial" element={<FinancialReportsPage />} />
       </Route>
       <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
         <Route index element={<Navigate to="/admin/dashboard" replace />} />

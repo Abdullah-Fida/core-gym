@@ -24,9 +24,9 @@ import {
   formatDateTime, 
   daysFromNow, 
   buildWhatsAppMessage, 
-  getWhatsAppLink, 
-  printReceiptContent 
+  getWhatsAppLink 
 } from '../../lib/utils';
+import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ModernLoader } from '../../components/common/ModernLoader';
@@ -114,7 +114,7 @@ export default function MemberDetailPage() {
       await db.members.update(member.id, { fingerprint_id: credentialId });
       
       // Queue for sync
-      await queueSyncTask('member', 'PATCH', { id: member.id, fingerprint_id: credentialId });
+      await queueSyncTask('member', 'UPDATE', { id: member.id, fingerprint_id: credentialId });
       
       setMember({ ...member, fingerprint_id: credentialId });
       toast.success('Fingerprint registered successfully!');
@@ -125,8 +125,17 @@ export default function MemberDetailPage() {
 
   const printReceipt = (p) => {
     const gymName = (gym?.gym_name || gym?.name) || 'CORE GYM';
-    const html = `<!doctype html><html><head><style>body{font-family:sans-serif;padding:40px;color:#333} .card{border:2px solid #38bdf8;padding:30px;border-radius:15px;max-width:500px;margin:auto} h2{color:#38bdf8;margin-top:0} table{width:100%} td{padding:10px 0;border-bottom:1px solid #eee}</style></head><body><div class="card"><h2>${gymName}</h2><p>Payment Receipt</p><table><tr><td>Member</td><td><b>${member.name}</b></td></tr><tr><td>Date</td><td>${formatDate(p.payment_date)}</td></tr><tr><td>Amount</td><td><b>${formatPKR(p.amount)}</b></td></tr><tr><td>Method</td><td>${p.payment_method}</td></tr><tr><td>Expiry</td><td>${formatDate(p.expiry_date)}</td></tr></table><p style="text-align:center;font-size:12px;margin-top:20px">Thank you!</p></div><script>setTimeout(()=>window.print(),500)</script></body></html>`;
-    printReceiptContent(html);
+    printThermalReceipt({
+      gymName,
+      invoiceId: p.id,
+      memberName: member.name,
+      memberPhone: member.phone,
+      amount: p.amount,
+      paymentDate: p.payment_date,
+      paymentMethod: p.payment_method,
+      expiryDate: p.expiry_date,
+      reason: 'Membership Fee',
+    });
   };
 
   const handleDelete = async () => {
@@ -138,8 +147,8 @@ export default function MemberDetailPage() {
     });
     if (!isConfirmed) return;
     try {
-      await db.payments.where('member_id').equals(id).delete();
-      await db.members.delete(id);
+      // DO NOT cascade delete payments
+      await db.members.update(id, { status: 'deleted' });
       await queueSyncTask('member', 'DELETE', { id });
       toast.success('Member removed');
       navigate('/members');

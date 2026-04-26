@@ -53,6 +53,7 @@ export async function seedLocalDatabase() {
     let paymentsData = null;
     let expensesData = null;
     let staffData = null;
+    let attendanceData = null;
 
     try {
       const res = await api.get('/members', { params: { limit: 10000 } });
@@ -80,6 +81,13 @@ export async function seedLocalDatabase() {
       staffData = res.data.data || [];
     } catch (e) {
       console.warn('[DB] Failed to fetch staff from server. Local staff preserved.', e.message);
+    }
+
+    try {
+      const res = await api.get('/attendance', { params: { limit: 10000 } });
+      attendanceData = res.data.data || [];
+    } catch (e) {
+      console.warn('[DB] Failed to fetch attendance from server. Local attendance preserved.', e.message);
     }
 
     // Only clear + reseed tables whose fetch SUCCEEDED
@@ -126,6 +134,14 @@ export async function seedLocalDatabase() {
         await db.staff.bulkPut(staffList);
         await db.staff_payments.bulkPut(allPayments);
         console.log(`[DB] Merged ${staffList.length} staff and ${allPayments.length} salaries.`);
+      }
+    }
+
+    if (attendanceData !== null) {
+      console.log(`[DB] Sync: Fetched ${attendanceData.length} attendance records from server.`);
+      if (attendanceData.length > 0) {
+        await db.attendance.bulkPut(attendanceData.map(a => ({ ...a, last_sync: now })));
+        console.log(`[DB] Merged ${attendanceData.length} attendance records from server.`);
       }
     }
 
@@ -201,6 +217,8 @@ export async function flushSyncQueue() {
       } else if (task.type === 'staff_payment') {
         if (task.operation === 'CREATE') await api.post(`/staff/${task.payload.staff_id}/salary`, task.payload);
         else if (task.operation === 'DELETE') await api.delete(`/staff/${task.payload.staff_id}/salary/${task.payload.id}`);
+      } else if (task.type === 'attendance') {
+        if (task.operation === 'CREATE' || task.operation === 'POST') await api.post('/attendance', task.payload);
       }
 
       await db.sync_queue.delete(task.id);

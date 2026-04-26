@@ -26,8 +26,9 @@ export default function StaffListPage() {
 
       // If DB is empty and we are syncing, return null so loader shows
       if (localStaff.length === 0 && isSyncing) return null;
+      let activeStaff = localStaff.filter(s => s.status !== 'deleted');
 
-      let results = localStaff.map(s => {
+      let results = activeStaff.map(s => {
         const staffPayments = localPayments.filter(p => p.staff_id === s.id);
         const isPaid = staffPayments.some(p => p.month === month && p.year === year);
         return { ...s, staff_payments: staffPayments, isPaid };

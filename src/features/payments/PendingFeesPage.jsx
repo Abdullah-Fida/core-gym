@@ -26,16 +26,28 @@ export default function PendingFeesPage() {
 
       try {
         const localMembers = await db.members.toArray();
-        const pending = localMembers.map(m => {
+        const allPayments = await db.payments.toArray();
+        
+        // Build map of latest payment per member
+        const lastPayMap = {};
+        allPayments.forEach(p => {
+          if (!lastPayMap[p.member_id] || p.payment_date > lastPayMap[p.member_id].payment_date) {
+            lastPayMap[p.member_id] = p;
+          }
+        });
+
+        const activeLocalMembers = localMembers.filter(m => m.status !== 'deleted');
+
+        const pending = activeLocalMembers.map(m => {
           const days = daysFromNow(m.latest_expiry);
           let status = m.status;
-          if (status !== 'inactive' && status !== 'trial') {
+          if (status !== 'inactive') {
             if (days === null) status = 'inactive';
             else if (days < 0) status = 'expired';
             else if (days <= 3) status = 'due_soon';
             else status = 'active';
           }
-          return { ...m, status };
+          return { ...m, status, lastPayment: lastPayMap[m.id] || null };
         }).filter(m => m.status === 'expired' || m.status === 'due_soon');
         
         setMembers(pending);
@@ -107,11 +119,6 @@ export default function PendingFeesPage() {
         targetMembers.map(member => {
           const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
           const isExpired = member.status === 'expired' || (days !== null && days < 0);
-          
-          let lastPayment = null;
-          if (member.payments && member.payments.length > 0) {
-            lastPayment = member.payments[0];
-          }
 
           return (
             <div key={member.id} className="pending-card">
@@ -123,8 +130,8 @@ export default function PendingFeesPage() {
                 <div className="overdue">
                   {days === null ? 'No payment record' : isExpired ? `${Math.abs(days)} days overdue` : `Expires in ${days} days`}
                 </div>
-                {lastPayment && (
-                  <div className="last-pay">Last: {formatPKR(lastPayment.amount)} on {formatDate(lastPayment.payment_date)}</div>
+                {member.lastPayment && (
+                  <div className="last-pay">Last: {formatPKR(member.lastPayment.amount)} on {formatDate(member.lastPayment.payment_date)}</div>
                 )}
               </div>
               <div className="pending-buttons">

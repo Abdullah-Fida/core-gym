@@ -92,11 +92,20 @@ export function generateId() {
 
 export function getWhatsAppLink(phone, message) {
   let cleaned = phone.replace(/[^0-9]/g, '');
+  // Handle all Pakistani number formats:
+  // 03001234567 (11 digits) → 923001234567
+  // 3001234567  (10 digits) → 923001234567
+  // 923001234567 (12 digits, already international) → keep as is
+  // +923001234567 → 923001234567 (+ already stripped above)
   if (cleaned.startsWith('0') && cleaned.length === 11) {
     cleaned = '92' + cleaned.substring(1);
+  } else if (cleaned.length === 10 && !cleaned.startsWith('0') && !cleaned.startsWith('92')) {
+    cleaned = '92' + cleaned;
+  } else if (cleaned.startsWith('92') && cleaned.length === 12) {
+    // Already correct international format
   }
   const encoded = encodeURIComponent(message);
-  return `https://api.whatsapp.com/send?phone=${cleaned}&text=${encoded}`;
+  return `https://wa.me/${cleaned}?text=${encoded}`;
 }
 
 export function buildWhatsAppMessage(member, gym) {
@@ -154,27 +163,4 @@ export function calculateHealthScore(gym) {
   if (gym.is_active === false) score = Math.max(0, score - 50);
   
   return Math.round(score);
-}
-
-/**
- * Utility to print HTML content using a hidden iframe.
- * Avoids window.open which can block the main thread.
- */
-export function printReceiptContent(htmlContent) {
-  let iframe = document.getElementById('print-iframe');
-  if (!iframe) {
-    iframe = document.createElement('iframe');
-    iframe.id = 'print-iframe';
-    iframe.setAttribute('style', 'position:absolute;width:0;height:0;border:none;top:-1000px;left:-1000px;');
-    document.body.appendChild(iframe);
-  }
-
-  const frameDoc = iframe.contentWindow.document;
-  frameDoc.open();
-  frameDoc.write(htmlContent);
-  frameDoc.close();
-
-  // The HTML content usually has a script to call window.print() after a delay.
-  // We also focus it here just in case.
-  iframe.contentWindow.focus();
 }

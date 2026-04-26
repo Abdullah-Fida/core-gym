@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit, CreditCard, Trash2, CalendarCheck, Loader2 } from 'lucide-react';
+import { ArrowLeft, Edit, CreditCard, Trash2, CalendarCheck, Loader2, Printer } from 'lucide-react';
 import { db, queueSyncTask } from '../../lib/db';
 import { useAuth } from '../../contexts/AuthContext';
 import { getInitials, formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName, generateId } from '../../lib/utils';
@@ -8,6 +8,7 @@ import { STAFF_ROLES, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
 import { ModernLoader } from '../../components/common/ModernLoader';
+import { printThermalReceipt } from '../../lib/thermalPrinter';
 import '../../styles/members.css';
 
 export default function StaffDetailPage() {
@@ -78,13 +79,28 @@ export default function StaffDetailPage() {
         amount_paid: Number(payForm.amount_paid), 
         paid_date: payForm.paid_date, 
         payment_method: payForm.payment_method, 
-        notes: payForm.notes 
+        notes: payForm.notes,
+        created_at: new Date().toISOString(),
+        last_sync: null
       };
       await db.staff_payments.add(payload);
       await queueSyncTask('staff_payment', 'CREATE', payload);
 
       toast.success(`Salary marked as paid for ${staff.name} locally!`);
       setShowPayForm(false);
+
+      // Auto-print salary receipt
+      const gymSettings = JSON.parse(localStorage.getItem('core_gym_settings') || '{}');
+      printSalaryReceipt({
+        id: pid,
+        staffName: staff.name,
+        staffPhone: staff.phone,
+        amount: Number(payForm.amount_paid),
+        month, year,
+        paidDate: payForm.paid_date,
+        paymentMethod: payForm.payment_method,
+        gymName: gymSettings.gym_name || 'CORE GYM',
+      });
       
       // Refresh local data
       const s = await db.staff.get(id);
@@ -109,13 +125,8 @@ export default function StaffDetailPage() {
 
     if (isConfirmed) {
       try {
-        // Cascade delete local staff payments
-        const localPayments = await db.staff_payments.where('staff_id').equals(id).toArray();
-        for (const p of localPayments) {
-          await db.staff_payments.delete(p.id);
-        }
-        
-        await db.staff.delete(id);
+        // DO NOT cascade delete payments — keep financial history intact
+        await db.staff.update(id, { status: 'deleted' });
         await queueSyncTask('staff', 'DELETE', { id });
         toast.success('Staff removed locally');
         navigate('/staff');
@@ -123,6 +134,19 @@ export default function StaffDetailPage() {
         toast.error('Failed to remove staff');
       }
     }
+  };
+
+  const printSalaryReceipt = (data) => {
+    printThermalReceipt({
+      gymName: data.gymName || 'CORE GYM',
+      invoiceId: data.id,
+      memberName: data.staffName,
+      memberPhone: data.staffPhone,
+      amount: data.amount,
+      paymentDate: data.paidDate,
+      paymentMethod: data.paymentMethod,
+      reason: `Salary — ${getMonthName(data.month)} ${data.year}`,
+    });
   };
 
   return (
@@ -158,7 +182,7 @@ export default function StaffDetailPage() {
         <button className="btn btn-secondary" onClick={() => navigate(`/staff/${id}/edit`)}><Edit size={16} /> Edit</button>
         {!isPaid && <button className="btn btn-primary" onClick={() => setShowPayForm(true)}><CreditCard size={16} /> Pay Salary</button>}
         {isPaid && <button className="btn btn-secondary" disabled>✓ Paid</button>}
-        <button className="btn btn-danger" onClick={handleDelete}><Trash2 size={16} /> Delete</button>
+        <button className="btn btn-danger" style={{ gridColumn: '1 / -1' }} onClick={handleDelete}><Trash2 size={16} /> Delete Staff Member</button>
       </div>
 
       {/* Pay Salary Form */}
@@ -186,12 +210,34 @@ export default function StaffDetailPage() {
           <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 'var(--space-md)' }}>No payments yet</p>
         ) : (
           salaryHistory.map(sp => (
-            <div key={sp.id} style={{ display: 'flex', justifyContent: 'space-between', padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
+            <div key={sp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
               <div>
                 <div style={{ fontWeight: 600 }}>{getMonthName(sp.month)} {sp.year}</div>
                 <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{formatDate(sp.paid_date)} • {sp.payment_method}</div>
               </div>
-              <div style={{ fontWeight: 700, color: 'var(--status-active)' }}>{formatPKR(sp.amount_paid)}</div>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
+                <div style={{ fontWeight: 700, color: 'var(--status-active)' }}>{formatPKR(sp.amount_paid)}</div>
+                <button
+                  className="btn btn-icon btn-secondary"
+                  style={{ padding: 6, minWidth: 'auto' }}
+                  title="Print Receipt"
+                  onClick={() => {
+                    const gymSettings = JSON.parse(localStorage.getItem('core_gym_settings') || '{}');
+                    printSalaryReceipt({
+                      id: sp.id,
+                      staffName: staff.name,
+                      staffPhone: staff.phone,
+                      amount: sp.amount_paid,
+                      month: sp.month, year: sp.year,
+                      paidDate: sp.paid_date,
+                      paymentMethod: sp.payment_method,
+                      gymName: gymSettings.gym_name || 'CORE GYM',
+                    });
+                  }}
+                >
+                  <Printer size={14} />
+                </button>
+              </div>
             </div>
           ))
         )}

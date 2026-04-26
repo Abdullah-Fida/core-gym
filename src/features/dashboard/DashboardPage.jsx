@@ -62,11 +62,25 @@ export default function DashboardPage() {
         return null;
       }
 
-      // Stats
-      const totalMembers = allMembers.length;
-      const activeMembers = allMembers.filter(m => m.status === 'active').length;
-      const expiredCount = allMembers.filter(m => m.status === 'expired').length;
-      const dueSoonCount = allMembers.filter(m => m.status === 'due_soon').length;
+      const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
+
+      // Recalculate status from latest_expiry (DB status can be stale)
+      const membersWithStatus = activeMembersList.map(m => {
+        const days = daysFromNow(m.latest_expiry);
+        let status = m.status;
+        if (status !== 'inactive') {
+          if (days === null) status = 'inactive';
+          else if (days < 0) status = 'expired';
+          else if (days <= 3) status = 'due_soon';
+          else status = 'active';
+        }
+        return { ...m, status };
+      });
+
+      const totalMembers = membersWithStatus.length;
+      const activeMembers = membersWithStatus.filter(m => m.status === 'active').length;
+      const expiredCount = membersWithStatus.filter(m => m.status === 'expired').length;
+      const dueSoonCount = membersWithStatus.filter(m => m.status === 'due_soon').length;
 
       const now = new Date();
       const thisMonth = now.getMonth();

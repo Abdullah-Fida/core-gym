@@ -34,6 +34,7 @@ export default function AddExpensePage() {
         id: generateId(),
         amount: Number(form.amount), 
         recurrence_day: form.is_recurring ? Number(form.recurrence_day) : null,
+        created_at: new Date().toISOString(),
         last_sync: null
       };
 

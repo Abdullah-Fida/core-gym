@@ -29,7 +29,8 @@ api.interceptors.response.use(
       // Don't intercept for login/register/reset paths
       const isAuthPath = config.url.includes('/auth/login') || 
                         config.url.includes('/auth/register') || 
-                        config.url.includes('/auth/forgot-password');
+                        config.url.includes('/auth/forgot-password') ||
+                        config.url.includes('/auth/change-password');
 
       if (!isAuthPath) {
         if (status === 403 && data?.isSuspended) {

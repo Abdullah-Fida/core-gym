@@ -10,13 +10,13 @@ import '../../styles/members.css';
 
 export default function ExpenseSummaryPage() {
   const navigate = useNavigate();
-  const [month, setMonth] = useState(getCurrentMonth());
+  const [viewMode, setViewMode] = useState(getCurrentMonth());
   const year = getCurrentYear();
   
   const [summary, setSummary] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const { isSyncing, online } = useSync();
+  const { isSyncing } = useSync();
 
   useEffect(() => {
     const fetchSummary = async () => {
@@ -26,36 +26,43 @@ export default function ExpenseSummaryPage() {
         const localPayments = await db.payments.toArray();
         const localStaffPayments = await db.staff_payments.toArray();
 
-        const allExpenses = localExpenses.filter(e => new Date(e.expense_date).getFullYear() === year);
-        const allPayments = localPayments.filter(p => new Date(p.payment_date).getFullYear() === year);
-        const allStaffPayments = localStaffPayments.filter(p => p.year === year);
+        let filteredExpenses = localExpenses;
+        let filteredPayments = localPayments;
+        let filteredStaff = localStaffPayments;
 
-        const monthly = Array.from({ length: 12 }, (_, i) => {
-          const m = i + 1;
-          const rev = allPayments.filter(p => new Date(p.payment_date).getMonth() === i).reduce((s, p) => s + p.amount, 0);
-          const exp = allExpenses.filter(e => new Date(e.expense_date).getMonth() === i).reduce((s, e) => s + e.amount, 0);
-          const sal = allStaffPayments.filter(p => p.month === m).reduce((s, p) => s + p.amount_paid, 0);
-          const totalExp = exp + sal;
-          return { month: m, revenue: rev, expenses: totalExp, profit: rev - totalExp, salaryOnly: sal, generalExpenseOnly: exp };
-        });
+        if (viewMode === 'this_year') {
+          filteredExpenses = localExpenses.filter(e => new Date(e.expense_date).getFullYear() === year);
+          filteredPayments = localPayments.filter(p => new Date(p.payment_date).getFullYear() === year);
+          filteredStaff = localStaffPayments.filter(p => p.year === year);
+        } else if (viewMode !== 'all_time') {
+          // specific month of current year
+          const m = Number(viewMode);
+          filteredExpenses = localExpenses.filter(e => {
+            const d = new Date(e.expense_date);
+            return d.getFullYear() === year && (d.getMonth() + 1) === m;
+          });
+          filteredPayments = localPayments.filter(p => {
+            const d = new Date(p.payment_date);
+            return d.getFullYear() === year && (d.getMonth() + 1) === m;
+          });
+          filteredStaff = localStaffPayments.filter(p => p.year === year && p.month === m);
+        }
+
+        const rev = filteredPayments.reduce((s, p) => s + p.amount, 0);
+        const exp = filteredExpenses.reduce((s, e) => s + e.amount, 0);
+        const sal = filteredStaff.reduce((s, p) => s + Number(p.amount_paid), 0);
+        const totalExp = exp + sal;
 
         const byCategory = {};
-        allExpenses.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
-
-        const totalRevenue = allPayments.reduce((s, p) => s + p.amount, 0);
-        const totalGeneralExpenses = allExpenses.reduce((s, e) => s + e.amount, 0);
-        const totalSalaries = allStaffPayments.reduce((s, p) => s + p.amount_paid, 0);
+        filteredExpenses.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
 
         setSummary({
-          monthly,
-          byCategory,
-          totals: {
-            revenue: totalRevenue,
-            expenses: totalGeneralExpenses + totalSalaries,
-            salaries: totalSalaries,
-            generalExpenses: totalGeneralExpenses,
-            profit: totalRevenue - (totalGeneralExpenses + totalSalaries)
-          }
+          revenue: rev,
+          expenses: totalExp,
+          profit: rev - totalExp,
+          salaryOnly: sal,
+          generalExpenseOnly: exp,
+          byCategory
         });
       } catch (err) {
         console.error('Failed to compute summary from local DB:', err);
@@ -65,7 +72,7 @@ export default function ExpenseSummaryPage() {
     };
     
     if (!isSyncing) fetchSummary();
-  }, [year, isSyncing]);
+  }, [year, viewMode, isSyncing]);
 
   if (loading || !summary) return (
     <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
@@ -73,10 +80,9 @@ export default function ExpenseSummaryPage() {
     </div>
   );
 
-  const monthData = summary.monthly.find(m => m.month === month) || { revenue: 0, expenses: 0, profit: 0 };
-  const revenue = monthData.revenue;
-  const expenses = monthData.expenses;
-  const profit = monthData.profit;
+  const revenue = summary.revenue || 0;
+  const expenses = summary.expenses || 0;
+  const profit = summary.profit || 0;
   const byCategory = summary.byCategory || {};
 
   return (
@@ -86,8 +92,12 @@ export default function ExpenseSummaryPage() {
         <h1 className="page-title">Profit / Loss</h1>
       </div>
 
-      <select className="form-select" style={{ marginBottom: 'var(--space-lg)' }} value={month} onChange={e => setMonth(Number(e.target.value))}>
-        {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
+      <select className="form-select" style={{ marginBottom: 'var(--space-lg)' }} value={viewMode} onChange={e => setViewMode(e.target.value)}>
+        <option value="this_year">This Year</option>
+        <option value="all_time">All Time</option>
+        <optgroup label="Specific Month (This Year)">
+          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
+        </optgroup>
       </select>
 
       {/* 4 Boxes Summary */}
@@ -100,12 +110,12 @@ export default function ExpenseSummaryPage() {
         <div className="card" style={{ textAlign: 'center' }}>
           <Minus size={20} style={{ color: '#e84393', margin: '0 auto var(--space-xs)' }} />
           <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Staff Salaries</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#e84393' }}>{formatPKR(monthData.salaryOnly || 0)}</div>
+          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#e84393' }}>{formatPKR(summary.salaryOnly || 0)}</div>
         </div>
         <div className="card" style={{ textAlign: 'center' }}>
           <Minus size={20} style={{ color: '#fdcb6e', margin: '0 auto var(--space-xs)' }} />
           <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>General Expenses</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#fdcb6e' }}>{formatPKR(monthData.generalExpenseOnly || 0)}</div>
+          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#fdcb6e' }}>{formatPKR(summary.generalExpenseOnly || 0)}</div>
         </div>
         <div className="card" style={{ textAlign: 'center' }}>
           <Minus size={20} style={{ color: 'var(--status-danger)', margin: '0 auto var(--space-xs)' }} />

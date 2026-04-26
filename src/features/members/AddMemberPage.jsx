@@ -3,7 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Save, CreditCard, Calendar, ChevronRight, SkipForward, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { todayStr, calculateExpiryDate, formatDate, formatDateTime, formatPKR, getInitials, printReceiptContent } from '../../lib/utils';
+import { todayStr, calculateExpiryDate, formatDate, formatDateTime, formatPKR, getInitials } from '../../lib/utils';
+import { printThermalReceipt } from '../../lib/thermalPrinter';
 import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
@@ -113,6 +114,15 @@ export default function AddMemberPage() {
     
     setLoading(true);
     try {
+      const duplicates = await db.members.where('phone').equals(memberForm.phone.trim()).toArray();
+      const isDuplicate = duplicates.some(m => m.name.trim().toLowerCase() === memberForm.name.trim().toLowerCase());
+
+      if (isDuplicate) {
+        toast.error('A member with this name and phone number already exists');
+        setLoading(false);
+        return;
+      }
+
       const id = generateId();
       const memberData = { ...memberForm, id, last_sync: null };
       
@@ -269,36 +279,24 @@ export default function AddMemberPage() {
   const printReceipt = (r) => {
     try {
       const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : 'Gym';
+      const cleanNotes = r.notes ? String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim() : '';
 
-      // Combined receipt (multiple items)
-      if (r.items && Array.isArray(r.items)) {
-        const printedAt = new Date().toISOString();
-        const paymentDate = r.payment_date || r.items[0]?.payment_date || new Date().toISOString();
-        const printedAtStr = formatDateTime(printedAt);
-        const paymentDateStr = String(paymentDate).includes('T') ? formatDateTime(paymentDate) : formatDate(paymentDate);
+      printThermalReceipt({
+        gymName,
+        invoiceId: r.id,
+        memberName: r.member_name || '',
+        memberPhone: r.member_phone || r.memberPhone || '',
+        amount: r.amount,
+        paymentDate: r.payment_date,
+        paymentMethod: r.payment_method,
+        expiryDate: r.expiry_date,
+        receivedBy: r.received_by || r.receivedBy || '',
+        reason: parseReason(r.notes || ''),
+        notes: cleanNotes || undefined,
+        items: r.items,
+        total: r.total,
+      });
 
-        const rows = r.items.map(it => `<tr><td>${it.label}</td><td style="text-align:right">${formatPKR(it.amount)}</td></tr>`).join('');
-        const expiry = r.expiry_date ? `<tr><td><strong>Valid Till</strong></td><td>${formatDate(r.expiry_date)}</td></tr>` : '';
-
-        const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt</title><style>body{font-family: Arial; padding:20px;} .box{max-width:600px;border:1px solid #ddd;padding:20px;} h2{margin-top:0;} table{width:100%;border-collapse:collapse;} td{padding:8px;border-bottom:1px solid #eee;} .total{font-weight:800}</style></head><body><div class="box"><h2>${gymName}</h2><h3>Payment Receipt</h3><table><tr><td><strong>Invoice</strong></td><td>${shortId(r.id)}</td></tr><tr><td><strong>Payment Date</strong></td><td>${paymentDateStr}</td></tr><tr><td><strong>Printed At</strong></td><td>${printedAtStr}</td></tr><tr><td><strong>Member</strong></td><td>${r.member_name || ''}${r.member_phone ? ' • ' + r.member_phone : ''}</td></tr>${rows}<tr class="total"><td>Total</td><td style="text-align:right">${formatPKR(r.total)}</td></tr>${expiry}${r.received_by ? `<tr><td><strong>Received By</strong></td><td>${r.received_by}</td></tr>` : ''}</table><p style="font-size:12px;color:#666;margin-top:12px">Thank you for your payment.</p></div><script>setTimeout(function(){ window.print(); }, 250);</script></body></html>`;
-        
-        printReceiptContent(html);
-        setShowReceipts(false);
-        navigate(`/members/${newMember.id}`);
-        return;
-      }
-
-      // Single payment
-      const printedAtStr = formatDateTime(new Date().toISOString());
-      const hasTime = r.payment_date && (String(r.payment_date).includes('T') || new Date(r.payment_date).getHours() || new Date(r.payment_date).getMinutes());
-      const paymentStr = hasTime ? formatDateTime(r.payment_date) : formatDate(r.payment_date || new Date().toISOString());
-      const reason = parseReason(r.notes || '');
-      const receivedBy = r.received_by || r.receivedBy || '';
-      const memberPhone = r.member_phone || r.memberPhone || '';
-
-      const html = `<!doctype html><html><head><meta charset="utf-8"><title>Receipt</title><style>body{font-family: Arial; padding:20px;} .box{max-width:600px;border:1px solid #ddd;padding:20px;} h2{margin-top:0;} table{width:100%;border-collapse:collapse;} td{padding:8px;border-bottom:1px solid #eee;}</style></head><body><div class="box"><h2>${gymName}</h2><h3>Payment Receipt</h3><table><tr><td><strong>Invoice</strong></td><td>${shortId(r.id)}</td></tr><tr><td><strong>Payment Date</strong></td><td>${paymentStr}</td></tr><tr><td><strong>Printed At</strong></td><td>${printedAtStr}</td></tr><tr><td><strong>Member</strong></td><td>${r.member_name || ''}${memberPhone ? ' • ' + memberPhone : ''}</td></tr><tr><td><strong>Amount</strong></td><td>${formatPKR(r.amount)}</td></tr><tr><td><strong>Method</strong></td><td>${r.payment_method || ''}</td></tr><tr><td><strong>Reason</strong></td><td>${reason}</td></tr>${r.expiry_date ? `<tr><td><strong>Valid Till</strong></td><td>${formatDate(r.expiry_date)}</td></tr>` : ''}${receivedBy ? `<tr><td><strong>Received By</strong></td><td>${receivedBy}</td></tr>` : ''}${(r.notes && String(r.notes).replace(/payment_type:[^;]+;?/, '').trim()) ? `<tr><td><strong>Notes</strong></td><td>${String(r.notes).replace(/payment_type:[^;]+;?/, '').trim()}</td></tr>` : ''}</table><p style="font-size:12px;color:#666;margin-top:12px">Thank you for your payment.</p></div><script>setTimeout(function(){ window.print(); }, 250);</script></body></html>`;
-      
-      printReceiptContent(html);
       setShowReceipts(false);
       navigate(`/members/${newMember.id}`);
     } catch (e) { console.error(e); toast.error('Unable to print'); }

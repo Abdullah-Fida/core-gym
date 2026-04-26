@@ -1,12 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Save, LogOut, Loader2, Palette, CheckCircle2 } from 'lucide-react';
+import { Save, LogOut, Loader2, Palette, CheckCircle2, Printer } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { THEME_PRESETS, applyTheme, getActiveThemeId } from '../../lib/theme';
+import { getPrinterSettings, savePrinterSettings, printTestPage } from '../../lib/thermalPrinter';
 import '../../styles/members.css';
 
 export default function SettingsPage() {
@@ -20,6 +21,7 @@ export default function SettingsPage() {
   const [isChangingPass, setIsChangingPass] = useState(false);
   const [selectedTheme, setSelectedTheme] = useState(getActiveThemeId());
   const [isApplyingTheme, setIsApplyingTheme] = useState(false);
+  const [printerPaperWidth, setPrinterPaperWidth] = useState(() => getPrinterSettings().paperWidth);
 
   const { saveDraft, clearDraft } = useFormDraft('settings', {}, (draft) => {
     if (draft.form) setForm(prev => ({ ...prev, ...(draft.form || {}) }));
@@ -191,6 +193,44 @@ export default function SettingsPage() {
 
         <button type="button" className="btn btn-primary btn-block" onClick={handleApplyTheme} disabled={isApplyingTheme}>
           {isApplyingTheme ? <Loader2 className="spin" size={18} /> : <><Palette size={18} /> Apply Theme</>}
+        </button>
+      </div>
+
+      <div style={{ marginTop: 'var(--space-lg)' }}>
+        <h3 className="section-title">Thermal Printer</h3>
+        <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-xs)', marginBottom: 'var(--space-md)' }}>
+          Set your thermal printer paper width and test the connection.
+        </p>
+
+        <div className="form-group">
+          <label className="form-label">Paper Width</label>
+          <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
+            {['58mm', '80mm'].map(w => (
+              <button
+                key={w}
+                type="button"
+                className={`btn ${printerPaperWidth === w ? 'btn-primary' : 'btn-secondary'} btn-sm`}
+                onClick={() => {
+                  setPrinterPaperWidth(w);
+                  savePrinterSettings({ paperWidth: w });
+                  toast.success(`Paper width set to ${w}`);
+                }}
+              >
+                {w}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-secondary btn-block"
+          onClick={() => {
+            printTestPage();
+            toast.info('Test page sent to printer');
+          }}
+        >
+          <Printer size={18} /> Print Test Page
         </button>
       </div>
 
