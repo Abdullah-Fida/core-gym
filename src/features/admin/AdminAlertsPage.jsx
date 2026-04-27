@@ -139,13 +139,13 @@ export default function AdminAlertsPage() {
               {renewalForm.months === 'custom' && (
                 <div className="form-group">
                   <label className="form-label">Custom Days</label>
-                  <input required type="number" className="form-input" placeholder="e.g. 15" value={renewalForm.customDays} onChange={e => setRenewalForm({...renewalForm, customDays: e.target.value})} />
+                  <input required type="text" inputMode="numeric" className="form-input" placeholder="e.g. 15" value={renewalForm.customDays} onChange={e => setRenewalForm({...renewalForm, customDays: e.target.value})} />
                 </div>
               )}
 
               <div className="form-group">
                 <label className="form-label">Payment Amount Collected (PKR)*</label>
-                <input required type="number" className="form-input" placeholder="e.g. 2500" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
+                <input required type="text" inputMode="numeric" className="form-input" placeholder="e.g. 2500" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>

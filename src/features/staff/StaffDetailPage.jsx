@@ -200,7 +200,7 @@ export default function StaffDetailPage() {
         <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
           <h3 style={{ marginBottom: 'var(--space-md)' }}>Log Salary Payment</h3>
           <form onSubmit={handlePaySalary}>
-            <div className="form-group"><label className="form-label">Amount Paid</label><input className="form-input" type="number" value={payForm.amount_paid} onChange={e => setPayForm(p => ({ ...p, amount_paid: e.target.value }))} /></div>
+            <div className="form-group"><label className="form-label">Amount Paid</label><input className="form-input" type="text" inputMode="numeric" value={payForm.amount_paid} onChange={e => setPayForm(p => ({ ...p, amount_paid: e.target.value }))} /></div>
             <div className="form-group"><label className="form-label">Date</label><input className="form-input" type="date" value={payForm.paid_date} onChange={e => setPayForm(p => ({ ...p, paid_date: e.target.value }))} /></div>
             <div className="form-group"><label className="form-label">Payment Method</label><select className="form-select" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}>{PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
             <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>

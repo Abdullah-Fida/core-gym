@@ -158,7 +158,7 @@ export default function SettingsPage() {
         <div className="form-group"><label className="form-label">Phone Number</label><input className="form-input" value={form.phone} onChange={e => set('phone', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">City</label><input className="form-input" value={form.city} onChange={e => set('city', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Address</label><input className="form-input" value={form.address} onChange={e => set('address', e.target.value)} /></div>
-        <div className="form-group"><label className="form-label">Default Monthly Fee (PKR)</label><input className="form-input" type="number" value={form.default_monthly_fee} onChange={e => set('default_monthly_fee', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Default Monthly Fee (PKR)</label><input className="form-input" type="text" inputMode="numeric" value={form.default_monthly_fee} onChange={e => set('default_monthly_fee', e.target.value)} /></div>
         <button type="submit" className="btn btn-primary btn-block" disabled={isSaving}>
           {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Save Changes</>}
         </button>

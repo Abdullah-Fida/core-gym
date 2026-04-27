@@ -58,7 +58,7 @@ export default function AddStaffPage() {
         <div className="form-group"><label className="form-label">Role</label><select className="form-select" value={form.role || 'trainer'} onChange={e => set('role', e.target.value)}>{STAFF_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
         {form.role === 'other' && <div className="form-group"><label className="form-label">Custom Role</label><input className="form-input" value={form.custom_role || ''} onChange={e => set('custom_role', e.target.value)} /></div>}
         <div className="form-group"><label className="form-label">Join Date</label><input className="form-input" type="date" value={form.join_date || ''} onChange={e => set('join_date', e.target.value)} /></div>
-        <div className="form-group"><label className="form-label">Monthly Salary (PKR)</label><input className="form-input" type="number" placeholder="25000" value={form.monthly_salary || ''} onChange={e => set('monthly_salary', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Monthly Salary (PKR)</label><input className="form-input" type="text" inputMode="numeric" placeholder="25000" value={form.monthly_salary || ''} onChange={e => set('monthly_salary', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" placeholder="Optional notes..." value={form.notes || ''} onChange={e => set('notes', e.target.value)} /></div>
         <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
           {loading ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Save Staff</>}

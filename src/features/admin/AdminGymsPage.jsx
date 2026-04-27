@@ -220,7 +220,7 @@ export default function AdminGymsPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Default Monthly Fee (For Gym Members)*</label>
-                <input type="number" className="form-input" placeholder="3000" value={newGym.default_monthly_fee} onChange={e => setNewGym({...newGym, default_monthly_fee: e.target.value})} />
+                <input type="text" inputMode="numeric" className="form-input" placeholder="3000" value={newGym.default_monthly_fee} onChange={e => setNewGym({...newGym, default_monthly_fee: e.target.value})} />
               </div>
 
               <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>

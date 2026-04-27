@@ -111,7 +111,7 @@ export default function EditExpensePage() {
       <form onSubmit={handleSubmit}>
         <div className="form-group"><label className="form-label">Category</label><select className="form-select" value={form.category || 'equipment_repair'} onChange={e => set('category', e.target.value)}>{EXPENSE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.icon} {c.label}</option>)}</select></div>
         {form.category === 'custom' && <div className="form-group"><label className="form-label">Custom Category</label><input className="form-input" value={form.custom_category || ''} onChange={e => set('custom_category', e.target.value)} /></div>}
-        <div className="form-group"><label className="form-label">Amount (PKR)</label><input className="form-input" type="number" value={form.amount || ''} onChange={e => set('amount', e.target.value)} /></div>
+        <div className="form-group"><label className="form-label">Amount (PKR)</label><input className="form-input" type="text" inputMode="numeric" value={form.amount || ''} onChange={e => set('amount', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Date</label><input className="form-input" type="date" value={form.expense_date || ''} onChange={e => set('expense_date', e.target.value)} /></div>
         <div className="form-group"><label className="form-label">Description</label><textarea className="form-textarea" value={form.description || ''} onChange={e => set('description', e.target.value)} /></div>
         <div className="form-group" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
@@ -119,7 +119,7 @@ export default function EditExpensePage() {
           <label className="form-toggle"><input type="checkbox" checked={form.is_recurring} onChange={e => set('is_recurring', e.target.checked)} /><span className="slider"></span></label>
         </div>
         {form.is_recurring && (
-          <div className="form-group"><label className="form-label">Recurring Day of Month</label><input className="form-input" type="number" min="1" max="31" value={form.recurrence_day ?? ''} onChange={e => set('recurrence_day', e.target.value)} /></div>
+          <div className="form-group"><label className="form-label">Recurring Day of Month</label><input className="form-input" type="text" inputMode="numeric" min="1" max="31" value={form.recurrence_day ?? ''} onChange={e => set('recurrence_day', e.target.value)} /></div>
         )}
         <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-md)' }}>
           <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={isSaving}>

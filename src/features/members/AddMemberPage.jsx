@@ -456,7 +456,7 @@ export default function AddMemberPage() {
             {payForm.is_trial ? (
               <div className="form-group">
                 <label className="form-label">Trial Days</label>
-                <input className="form-input" type="number" value={payForm.trial_days || ''} onChange={e => setPay('trial_days', e.target.value)} placeholder="Number of days" />
+                <input className="form-input" type="text" inputMode="numeric" value={payForm.trial_days || ''} onChange={e => setPay('trial_days', e.target.value)} placeholder="Number of days" />
               </div>
             ) : (
               <>
@@ -464,7 +464,7 @@ export default function AddMemberPage() {
                   <label className="form-label">Amount (PKR)</label>
                   <input
                     className="form-input"
-                    type="number"
+                    type="text" inputMode="numeric"
                     value={payForm.amount || ''}
                     onChange={e => setPay('amount', e.target.value)}
                   />
@@ -478,7 +478,7 @@ export default function AddMemberPage() {
                 {payForm.include_registration && (
                   <div className="form-group">
                     <label className="form-label">Registration Fee (PKR)</label>
-                    <input className="form-input" type="number" value={payForm.registration_amount || ''} onChange={e => setPay('registration_amount', e.target.value)} />
+                    <input className="form-input" type="text" inputMode="numeric" value={payForm.registration_amount || ''} onChange={e => setPay('registration_amount', e.target.value)} />
                   </div>
                 )}
               </>
@@ -513,7 +513,7 @@ export default function AddMemberPage() {
                   {payForm.plan_duration_months === 'custom' && (
                     <input 
                       className="form-input" 
-                      type="number" 
+                      type="text" inputMode="numeric" 
                       placeholder="Enter number of days" 
                       value={payForm.custom_days} 
                       onChange={e => setPay('custom_days', e.target.value)} 

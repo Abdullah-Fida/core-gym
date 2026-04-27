@@ -312,13 +312,13 @@ export default function AddPaymentPage() {
         {form.is_trial ? (
           <div className="form-group">
             <label className="form-label">Trial Days</label>
-            <input className="form-input" type="number" value={form.trial_days || ''} onChange={e => set('trial_days', e.target.value)} placeholder="Number of days" />
+            <input className="form-input" type="text" inputMode="numeric" value={form.trial_days || ''} onChange={e => set('trial_days', e.target.value)} placeholder="Number of days" />
           </div>
         ) : (
           <>
             <div className="form-group">
               <label className="form-label">Amount (PKR)</label>
-              <input className="form-input" type="number" value={form.amount || ''} onChange={e => set('amount', e.target.value)} />
+              <input className="form-input" type="text" inputMode="numeric" value={form.amount || ''} onChange={e => set('amount', e.target.value)} />
             </div>
 
             <div className="form-group">
@@ -340,7 +340,7 @@ export default function AddPaymentPage() {
               {form.plan_duration_months === 'custom' && (
                 <input 
                   className="form-input" 
-                  type="number" 
+                  type="text" inputMode="numeric" 
                   placeholder="Enter number of days" 
                   value={form.custom_days} 
                   onChange={e => set('custom_days', e.target.value)} 

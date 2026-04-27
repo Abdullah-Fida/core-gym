@@ -487,7 +487,7 @@ export default function AdminGymDetailPage() {
             <form onSubmit={handleLogPayment}>
               <div className="form-group">
                 <label className="form-label">Amount (PKR)*</label>
-                <input required type="number" className="form-input" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} />
+                <input required type="text" inputMode="numeric" className="form-input" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} />
               </div>
               <div className="form-group">
                 <label className="form-label">Category</label>
@@ -522,7 +522,7 @@ export default function AdminGymDetailPage() {
               </div>
               <div className="form-group">
                 <label className="form-label">Actual Amount Collected (PKR)</label>
-                <input required type="number" className="form-input" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
+                <input required type="text" inputMode="numeric" className="form-input" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
               </div>
               <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>
                 <button type="button" className="btn btn-secondary btn-block" onClick={() => setShowRenewModal(false)}>Cancel</button>
