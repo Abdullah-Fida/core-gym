@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, MessageCircle, CreditCard, Search, Loader2 } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { getInitials, daysFromNow, formatDate, formatPKR, buildWhatsAppMessage, getWhatsAppLink } from '../../lib/utils';
+import { getInitials, daysFromNow, formatDate, formatPKR, buildWhatsAppMessage, getWhatsAppLink, calculateMemberStatus } from '../../lib/utils';
 import { WHATSAPP_TEMPLATES } from '../../lib/constants';
 import { useSync } from '../../hooks/useSync';
 import { db } from '../../lib/db';
@@ -39,14 +39,7 @@ export default function PendingFeesPage() {
         const activeLocalMembers = localMembers.filter(m => m.status !== 'deleted');
 
         const pending = activeLocalMembers.map(m => {
-          const days = daysFromNow(m.latest_expiry);
-          let status = m.status;
-          if (status !== 'inactive') {
-            if (days === null) status = 'inactive';
-            else if (days < 0) status = 'expired';
-            else if (days <= 3) status = 'due_soon';
-            else status = 'active';
-          }
+          const status = calculateMemberStatus(m);
           return { ...m, status, lastPayment: lastPayMap[m.id] || null };
         }).filter(m => m.status === 'expired' || m.status === 'due_soon');
         

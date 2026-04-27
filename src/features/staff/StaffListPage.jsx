@@ -30,7 +30,18 @@ export default function StaffListPage() {
 
       let results = activeStaff.map(s => {
         const staffPayments = localPayments.filter(p => p.staff_id === s.id);
-        const isPaid = staffPayments.some(p => p.month === month && p.year === year);
+        
+        let isPaid = false;
+        if (staffPayments.length > 0) {
+          const sorted = [...staffPayments].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
+          const lastDate = new Date(sorted[0].paid_date);
+          const today = new Date();
+          today.setHours(0,0,0,0);
+          lastDate.setHours(0,0,0,0);
+          const diffDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+          isPaid = diffDays <= 30;
+        }
+
         return { ...s, staff_payments: staffPayments, isPaid };
       });
 

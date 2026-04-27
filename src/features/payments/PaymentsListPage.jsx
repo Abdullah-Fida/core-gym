@@ -4,7 +4,7 @@ import { ArrowLeft, Plus, Loader2, Clock } from 'lucide-react';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../lib/db';
 import { useSync } from '../../hooks/useSync';
-import { formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
+import { formatPKR, formatDate, formatDateTime, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import '../../styles/payments.css';
 import '../../styles/loading.css';
@@ -220,7 +220,7 @@ export default function PaymentsListPage() {
               </div>
               <div className="pay-details" style={{ flex: 1, minWidth: 0 }}>
                 <h4 style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.title}</h4>
-                <p style={{ fontSize: 11 }}>{formatDate(p.date)} • {p.subtitle}</p>
+                <p style={{ fontSize: 11 }}>{formatDateTime(p.created_at || p.date)} • {p.subtitle}</p>
                 <p style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 2, fontStyle: 'italic', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                   Reason: {p.reason}
                 </p>

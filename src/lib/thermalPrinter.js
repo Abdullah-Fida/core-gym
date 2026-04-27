@@ -123,6 +123,19 @@ export function buildReceiptHTML(data) {
     itemsHTML = `<div class="row total-row"><span class="label">Amount</span><span class="value">${formatPKR(data.amount)}</span></div>`;
   }
 
+  let finalGymName = data.gymName;
+  if (!finalGymName || finalGymName === 'GYM' || finalGymName === 'CORE GYM') {
+    try {
+      const cachedRaw = localStorage.getItem('core_gym_settings');
+      const userRaw = localStorage.getItem('core_gym_user');
+      const settings = cachedRaw ? JSON.parse(cachedRaw) : {};
+      const userObj = userRaw ? JSON.parse(userRaw) : {};
+      finalGymName = settings.gym_name || userObj.gym_name || 'CORE GYM';
+    } catch (e) {
+      finalGymName = 'CORE GYM';
+    }
+  }
+
   const html = `<!doctype html>
 <html>
 <head>
@@ -133,7 +146,7 @@ export function buildReceiptHTML(data) {
 <body>
   <div class="receipt">
     <div class="double-line"></div>
-    <div class="center header">${data.gymName || 'GYM'}</div>
+    <div class="center header">${finalGymName || 'GYM'}</div>
     <div class="center sub-header">Payment Receipt</div>
     <div class="double-line"></div>
 

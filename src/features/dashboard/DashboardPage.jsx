@@ -14,7 +14,7 @@ import { Bar, Line, Doughnut } from 'react-chartjs-2';
 import { useLiveQuery } from 'dexie-react-hooks';
 import { db } from '../../lib/db';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, formatDateShort, daysFromNow, buildWhatsAppMessage, getWhatsAppLink, getMonthName } from '../../lib/utils';
+import { formatPKR, formatDateShort, daysFromNow, buildWhatsAppMessage, getWhatsAppLink, getMonthName, calculateMemberStatus } from '../../lib/utils';
 import { StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useSync } from '../../hooks/useSync';
@@ -66,14 +66,7 @@ export default function DashboardPage() {
 
       // Recalculate status from latest_expiry (DB status can be stale)
       const membersWithStatus = activeMembersList.map(m => {
-        const days = daysFromNow(m.latest_expiry);
-        let status = m.status;
-        if (status !== 'inactive') {
-          if (days === null) status = 'inactive';
-          else if (days < 0) status = 'expired';
-          else if (days <= 3) status = 'due_soon';
-          else status = 'active';
-        }
+        const status = calculateMemberStatus(m);
         return { ...m, status };
       });
 

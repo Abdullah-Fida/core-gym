@@ -5,7 +5,7 @@ import { useLiveQuery } from 'dexie-react-hooks';
 import { db, queueSyncTask } from '../../lib/db';
 import { useToast } from '../../contexts/ToastContext';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import { getInitials, daysFromNow, formatDateShort } from '../../lib/utils';
+import { getInitials, daysFromNow, formatDateShort, calculateMemberStatus } from '../../lib/utils';
 import { MemberSkeleton, StateView } from '../../components/common/StateView';
 import { ModernLoader } from '../../components/common/ModernLoader';
 import { useSync } from '../../hooks/useSync';
@@ -55,14 +55,7 @@ export default function MembersListPage() {
 
       // Status calculation
       results = results.map(m => {
-        const days = daysFromNow(m.latest_expiry);
-        let status = m.status;
-        if (status !== 'inactive') {
-          if (days === null) status = 'inactive';
-          else if (days < 0) status = 'expired';
-          else if (days <= 3) status = 'due_soon';
-          else status = 'active';
-        }
+        const status = calculateMemberStatus(m);
         const lastPayment = paymentsByMember[m.id] || null;
         return { ...m, status, lastPayDate: lastPayment?.payment_date || null };
       });

@@ -251,7 +251,8 @@ export default function AddPaymentPage() {
       toast.success('Receipt canceled');
       if (receipts.length === 1) {
         setShowReceipts(false);
-        navigate('/payments');
+        const returnUrl = searchParams.get('returnUrl');
+        navigate(returnUrl || `/members/${form.member_id}`);
       }
     } catch (err) {
       toast.error(err.response?.data?.message || 'Failed to cancel payment');
@@ -379,7 +380,7 @@ export default function AddPaymentPage() {
       </form>
 
       {showReceipts && (
-        <div className="modal-backdrop" onClick={() => { setShowReceipts(false); navigate('/payments'); }}>
+        <div className="modal-backdrop" onClick={() => { setShowReceipts(false); navigate(searchParams.get('returnUrl') || `/members/${form.member_id}`); }}>
           <div className="modal-content" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
             <h2 style={{ marginTop: 0 }}>Payment Receipt{receipts.length > 1 ? 's' : ''}</h2>
             <div style={{ display: 'grid', gap: 12 }}>
@@ -406,7 +407,7 @@ export default function AddPaymentPage() {
               ))}
             </div>
             <div style={{ marginTop: 12 }}>
-              <button className="btn btn-primary btn-block" onClick={() => { setShowReceipts(false); navigate('/payments'); }}>Done</button>
+              <button className="btn btn-primary btn-block" onClick={() => { setShowReceipts(false); navigate(searchParams.get('returnUrl') || `/members/${form.member_id}`); }}>Done</button>
             </div>
           </div>
         </div>

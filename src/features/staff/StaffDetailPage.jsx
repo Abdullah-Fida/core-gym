@@ -63,7 +63,17 @@ export default function StaffDetailPage() {
   if (!staff) return <div className="page-container"><p>Staff not found</p></div>;
 
   const salaryHistory = staff.staff_payments || [];
-  const isPaid = salaryHistory.some(p => p.month === month && p.year === year);
+  
+  let isPaid = false;
+  if (salaryHistory.length > 0) {
+    const sorted = [...salaryHistory].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
+    const lastDate = new Date(sorted[0].paid_date);
+    const today = new Date();
+    today.setHours(0,0,0,0);
+    lastDate.setHours(0,0,0,0);
+    const diffDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
+    isPaid = diffDays <= 30;
+  }
   const roleInfo = STAFF_ROLES.find(r => r.value === staff.role);
 
   const handlePaySalary = async (e) => {

@@ -55,6 +55,25 @@ export function getMemberStatus(expiryDate) {
   return 'active';
 }
 
+export function calculateMemberStatus(member) {
+  if (member.status === 'deleted') return 'deleted';
+  const days = daysFromNow(member.latest_expiry);
+  let status = member.status;
+  
+  if (status === 'trial') {
+    if (days !== null && days < 0) return 'expired';
+    return 'trial';
+  }
+  
+  if (status !== 'inactive') {
+    if (days === null) status = 'inactive';
+    else if (days < 0) status = 'expired';
+    else if (days <= 3) status = 'due_soon';
+    else status = 'active';
+  }
+  return status;
+}
+
 export function getStatusColor(status) {
   switch (status) {
     case 'active': return 'var(--status-active)';
