@@ -440,6 +440,16 @@ ul, ol { list-style: none; }
 .form-input:focus { border-color: var(--accent-primary); box-shadow: 0 0 0 4px var(--accent-light); }
 .form-input::placeholder { color: var(--text-muted); font-weight: 400; }
 
+/* Remove number input spin buttons */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
 .form-select {
   width: 100%;
   padding: 12px 14px;
