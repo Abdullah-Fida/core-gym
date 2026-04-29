@@ -92,24 +92,33 @@ export default function MembersListPage() {
   const members = membersData || [];
   const totalCount = members.length;
 
-  const handleDeleteMember = async (e, id, name) => {
-    e.stopPropagation();
-    
-    const isConfirmed = await confirm({
-      title: 'Delete Member',
-      message: `Are you sure you want to delete ${name}? All their data inclusive payments and attendance will be gone forever.`,
-      confirmText: 'Yes, Delete',
-      type: 'danger'
-    });
+  const [deleteModal, setDeleteModal] = useState({ isOpen: false, memberId: null, name: '' });
 
-    if (!isConfirmed) return;
-    
+  const handleDeleteMember = (e, id, name) => {
+    e.stopPropagation();
+    setDeleteModal({ isOpen: true, memberId: id, name });
+  };
+
+  const processDeletion = async (permanent = false) => {
+    const { memberId, name } = deleteModal;
+    setDeleteModal({ isOpen: false, memberId: null, name: '' });
+
     try {
-      // DO NOT cascade delete payments locally either
-      await db.members.update(id, { status: 'deleted' });
-      await queueSyncTask('member', 'DELETE', { id });
-      
-      toast.success('Member and all records deleted');
+      if (permanent) {
+        // Hard delete member locally
+        await db.members.delete(memberId);
+        // Cascade delete related records locally to keep UI consistent with calculations
+        await db.payments.where('member_id').equals(memberId).delete();
+        await db.attendance.where('member_id').equals(memberId).delete();
+        
+        await queueSyncTask('member', 'DELETE', { id: memberId, permanent: true });
+        toast.success(`${name} and all associated records permanently deleted`);
+      } else {
+        // Soft delete member locally
+        await db.members.update(memberId, { status: 'deleted' });
+        await queueSyncTask('member', 'DELETE', { id: memberId, permanent: false });
+        toast.success(`${name} removed (financial records preserved)`);
+      }
     } catch (err) {
       console.error('Failed to delete member locally', err);
       toast.error('Could not delete.');
@@ -236,6 +245,76 @@ export default function MembersListPage() {
               This member cannot be deleted yet because they have hidden records (like old notifications or logs). Contact system support or try clearing their data first.
             </p>
             <button className="btn btn-primary btn-block" onClick={() => setErrorDetail(null)}>Close Diagnostic</button>
+          </div>
+        </div>
+      )}
+      {/* DELETE OPTIONS MODAL */}
+      {deleteModal.isOpen && (
+        <div className="modal-backdrop" style={{ alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => setDeleteModal({ isOpen: false, memberId: null, name: '' })}>
+          <div style={{ 
+            backgroundColor: 'var(--bg-secondary)',
+            maxWidth: 450, 
+            width: '90%',
+            borderRadius: '28px', 
+            border: '1px solid var(--border-color)', 
+            textAlign: 'center', 
+            padding: 'var(--space-xl)',
+            margin: '0 var(--space-md)',
+            animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            boxShadow: 'var(--shadow-2xl)',
+            position: 'relative'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ marginBottom: 'var(--space-lg)' }}>
+              <div style={{ 
+                width: 74, 
+                height: 74, 
+                background: 'rgba(248, 113, 113, 0.1)', 
+                borderRadius: '22px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 24px',
+                border: '1px solid rgba(248, 113, 113, 0.2)'
+              }}>
+                <Trash2 size={36} color="var(--status-danger)" />
+              </div>
+              <h2 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Delete Member</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', lineHeight: 1.6 }}>
+                How would you like to remove <strong>{deleteModal.name}</strong>?
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button className="btn btn-secondary" style={{ 
+                textAlign: 'center', 
+                padding: '16px', 
+                display: 'block', 
+                width: '100%', 
+                height: 'auto',
+                borderRadius: '16px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-tertiary)'
+              }} onClick={() => processDeletion(false)}>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 'var(--font-base)' }}>Option 1: Delete Profile Only</div>
+              </button>
+
+              <button className="btn btn-danger" style={{ 
+                textAlign: 'center', 
+                padding: '16px', 
+                display: 'block', 
+                width: '100%', 
+                height: 'auto',
+                borderRadius: '16px',
+                background: 'rgba(248, 113, 113, 0.05)',
+                border: '1px solid rgba(248, 113, 113, 0.2)'
+              }} onClick={() => processDeletion(true)}>
+                <div style={{ fontWeight: 700, color: 'var(--status-danger)', fontSize: 'var(--font-base)' }}>Option 2: Delete Everything (Permanent)</div>
+              </button>
+
+              <button className="btn btn-secondary" style={{ marginTop: 12, width: '100%' }} onClick={() => setDeleteModal({ isOpen: false, memberId: null, name: '' })}>
+                Cancel
+              </button>
+            </div>
           </div>
         </div>
       )}

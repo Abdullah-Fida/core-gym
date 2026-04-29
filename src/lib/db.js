@@ -203,7 +203,10 @@ export async function flushSyncQueue() {
       if (task.type === 'member') {
         if (task.operation === 'CREATE') await api.post('/members', task.payload);
         else if (task.operation === 'UPDATE') await api.put(`/members/${task.payload.id}`, task.payload);
-        else if (task.operation === 'DELETE') await api.delete(`/members/${task.payload.id}`);
+        else if (task.operation === 'DELETE') {
+          const url = task.payload.permanent ? `/members/${task.payload.id}?permanent=true` : `/members/${task.payload.id}`;
+          await api.delete(url);
+        }
       } else if (task.type === 'payment') {
         if (task.operation === 'CREATE') await api.post('/payments', task.payload);
       } else if (task.type === 'expense') {
@@ -213,7 +216,10 @@ export async function flushSyncQueue() {
       } else if (task.type === 'staff') {
         if (task.operation === 'CREATE') await api.post('/staff', task.payload);
         else if (task.operation === 'UPDATE') await api.put(`/staff/${task.payload.id}`, task.payload);
-        else if (task.operation === 'DELETE') await api.delete(`/staff/${task.payload.id}`);
+        else if (task.operation === 'DELETE') {
+          const url = task.payload.permanent ? `/staff/${task.payload.id}?permanent=true` : `/staff/${task.payload.id}`;
+          await api.delete(url);
+        }
       } else if (task.type === 'staff_payment') {
         if (task.operation === 'CREATE') await api.post(`/staff/${task.payload.staff_id}/salary`, task.payload);
         else if (task.operation === 'DELETE') await api.delete(`/staff/${task.payload.staff_id}/salary/${task.payload.id}`);

@@ -125,24 +125,29 @@ export default function StaffDetailPage() {
     }
   };
 
-  const handleDelete = async () => {
-    const isConfirmed = await confirm({
-      title: 'Remove Staff',
-      message: `Are you sure you want to remove ${staff.name}? This will delete their profile and salary history.`,
-      confirmText: 'Yes, Remove Staff',
-      type: 'danger'
-    });
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
 
-    if (isConfirmed) {
-      try {
-        // DO NOT cascade delete payments — keep financial history intact
+  const handleDelete = async (permanent = false) => {
+    setShowDeleteOptions(false);
+    try {
+      if (permanent) {
+        // Hard delete staff locally
+        await db.staff.delete(id);
+        // Cascade delete related records locally
+        await db.staff_payments.where('staff_id').equals(id).delete();
+        
+        await queueSyncTask('staff', 'DELETE', { id, permanent: true });
+        toast.success(`${staff.name} and all records permanently deleted`);
+      } else {
+        // Soft delete staff locally
         await db.staff.update(id, { status: 'deleted' });
-        await queueSyncTask('staff', 'DELETE', { id });
-        toast.success('Staff removed locally');
-        navigate('/staff');
-      } catch (err) {
-        toast.error('Failed to remove staff');
+        await queueSyncTask('staff', 'DELETE', { id, permanent: false });
+        toast.success(`${staff.name} removed (financial history preserved)`);
       }
+      navigate('/staff');
+    } catch (err) {
+      console.error('Failed to delete staff', err);
+      toast.error('Failed to remove staff');
     }
   };
 
@@ -192,7 +197,7 @@ export default function StaffDetailPage() {
         <button className="btn btn-secondary" onClick={() => navigate(`/staff/${id}/edit`)}><Edit size={16} /> Edit</button>
         {!isPaid && <button className="btn btn-primary" onClick={() => setShowPayForm(true)}><CreditCard size={16} /> Pay Salary</button>}
         {isPaid && <button className="btn btn-secondary" disabled>✓ Paid</button>}
-        <button className="btn btn-danger" style={{ gridColumn: '1 / -1' }} onClick={handleDelete}><Trash2 size={16} /> Delete Staff Member</button>
+        <button className="btn btn-danger" style={{ gridColumn: '1 / -1' }} onClick={() => setShowDeleteOptions(true)}><Trash2 size={16} /> Delete Staff Member</button>
       </div>
 
       {/* Pay Salary Form */}
@@ -251,6 +256,76 @@ export default function StaffDetailPage() {
           ))
         )}
       </div>
+      {/* DELETE OPTIONS MODAL */}
+      {showDeleteOptions && (
+        <div className="modal-backdrop" style={{ alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => setShowDeleteOptions(false)}>
+          <div style={{ 
+            backgroundColor: 'var(--bg-secondary)',
+            maxWidth: 450, 
+            width: '90%',
+            borderRadius: '28px', 
+            border: '1px solid var(--border-color)', 
+            textAlign: 'center', 
+            padding: 'var(--space-xl)',
+            margin: '0 var(--space-md)',
+            animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
+            boxShadow: 'var(--shadow-2xl)',
+            position: 'relative'
+          }} onClick={e => e.stopPropagation()}>
+            <div style={{ marginBottom: 'var(--space-lg)' }}>
+              <div style={{ 
+                width: 74, 
+                height: 74, 
+                background: 'rgba(248, 113, 113, 0.1)', 
+                borderRadius: '22px', 
+                display: 'flex', 
+                alignItems: 'center', 
+                justifyContent: 'center', 
+                margin: '0 auto 24px',
+                border: '1px solid rgba(248, 113, 113, 0.2)'
+              }}>
+                <Trash2 size={36} color="var(--status-danger)" />
+              </div>
+              <h2 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Delete Staff Member</h2>
+              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', lineHeight: 1.6 }}>
+                Choose how you want to remove <strong>{staff.name}</strong>.
+              </p>
+            </div>
+
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <button className="btn btn-secondary" style={{ 
+                textAlign: 'center', 
+                padding: '16px', 
+                display: 'block', 
+                width: '100%', 
+                height: 'auto',
+                borderRadius: '16px',
+                border: '1px solid var(--border-color)',
+                background: 'var(--bg-tertiary)'
+              }} onClick={() => handleDelete(false)}>
+                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 'var(--font-base)' }}>Option 1: Delete Profile Only</div>
+              </button>
+
+              <button className="btn btn-danger" style={{ 
+                textAlign: 'center', 
+                padding: '16px', 
+                display: 'block', 
+                width: '100%', 
+                height: 'auto',
+                borderRadius: '16px',
+                background: 'rgba(248, 113, 113, 0.05)',
+                border: '1px solid rgba(248, 113, 113, 0.2)'
+              }} onClick={() => handleDelete(true)}>
+                <div style={{ fontWeight: 700, color: 'var(--status-danger)', fontSize: 'var(--font-base)' }}>Option 2: Delete Everything (Permanent)</div>
+              </button>
+
+              <button className="btn btn-secondary" style={{ marginTop: 12, width: '100%' }} onClick={() => setShowDeleteOptions(false)}>
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
