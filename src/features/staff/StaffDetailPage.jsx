@@ -22,6 +22,7 @@ export default function StaffDetailPage() {
   const [loading, setLoading] = useState(true);
   const [showPayForm, setShowPayForm] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
   const [payForm, setPayForm] = useState({ 
     amount_paid: '', 
     paid_date: new Date().toISOString().split('T')[0], 
@@ -124,8 +125,6 @@ export default function StaffDetailPage() {
       setIsSaving(false);
     }
   };
-
-  const [showDeleteOptions, setShowDeleteOptions] = useState(false);
 
   const handleDelete = async (permanent = false) => {
     setShowDeleteOptions(false);
