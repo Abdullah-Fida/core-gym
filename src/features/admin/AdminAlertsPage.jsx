@@ -1,74 +1,78 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Phone, MessageCircle, X, Loader2, CheckCircle2, Clock, MapPin, Activity } from 'lucide-react';
+import {
+  AlertTriangle, Phone, MessageCircle, X, CheckCircle2, Clock,
+  MapPin, Activity,
+} from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
 import api from '../../lib/api';
 import { getWhatsAppLink } from '../../lib/utils';
-import '../../styles/admin.css';
+import { APP_NAME } from '../../lib/constants';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, Button, Badge, Tabs, Modal,
+  Input, Select, EmptyState, ListSkeleton,
+} from '../../components/ui';
+
+const ALERT_CONFIG = {
+  trial_ending: { icon: Clock, tone: 'warning', title: 'Subscription ending soon' },
+  no_login: { icon: Activity, tone: 'info', title: 'No login in 14+ days' },
+  suspended_expired: { icon: AlertTriangle, tone: 'danger', title: 'Suspended — subscription expired' },
+};
+
+const TONE_CLASSES = {
+  warning: { bar: 'border-t-warning', chip: 'bg-warning-soft text-warning', title: 'text-warning' },
+  info: { bar: 'border-t-info', chip: 'bg-info-soft text-info', title: 'text-info' },
+  danger: { bar: 'border-t-danger', chip: 'bg-danger-soft text-danger', title: 'text-danger' },
+};
+
+const EMPTY_RENEWAL = { gymId: '', gymName: '', months: '1', customDays: '', amount: '3000' };
 
 export default function AdminAlertsPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
+
+  const [alerts, setAlerts] = useState(null);
   const [dismissed, setDismissed] = useState([]);
   const [filter, setFilter] = useState('all');
   const [showRenewModal, setShowRenewModal] = useState(false);
-  const [renewalForm, setRenewalForm] = useState({ gymId: '', gymName: '', months: '1', customDays: '', amount: '3000' });
+  const [renewalForm, setRenewalForm] = useState(EMPTY_RENEWAL);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const fetchAlerts = useCallback(async () => {
+    try {
+      const res = await api.get('/admin/alerts');
+      setAlerts(res.data.data || []);
+    } catch (err) {
+      console.error('Failed to fetch admin alerts', err);
+      setAlerts([]);
+      toast.error('Could not load alerts.');
+    }
+  }, [toast]);
 
   useEffect(() => {
     fetchAlerts();
-  }, []);
+  }, [fetchAlerts]);
 
-  async function fetchAlerts() {
-    setLoading(true);
-    try {
-      const res = await api.get('/admin/alerts');
-      setAlerts(res.data.data);
-    } catch (err) {
-      console.error('Failed to fetch admin alerts', err);
-      toast.error('Failed to load alerts');
-    } finally {
-      setLoading(false);
-    }
-  }
+  const active = useMemo(
+    () => (alerts ?? []).filter((a) => !dismissed.includes(a.id)),
+    [alerts, dismissed]
+  );
 
-  const visibleAlerts = useMemo(() => {
-    let filtered = alerts.filter(a => !dismissed.includes(a.id));
-    if (filter !== 'all') {
-      filtered = filtered.filter(a => a.type === filter);
-    }
-    return filtered;
-  }, [alerts, dismissed, filter]);
-
-  const stats = useMemo(() => {
-    const active = alerts.filter(a => !dismissed.includes(a.id));
-    return {
+  const stats = useMemo(
+    () => ({
       total: active.length,
-      suspended: active.filter(a => a.type === 'suspended_expired').length,
-      expiring: active.filter(a => a.type === 'trial_ending').length,
-      inactive: active.filter(a => a.type === 'no_login').length,
-    };
-  }, [alerts, dismissed]);
+      suspended: active.filter((a) => a.type === 'suspended_expired').length,
+      expiring: active.filter((a) => a.type === 'trial_ending').length,
+      inactive: active.filter((a) => a.type === 'no_login').length,
+    }),
+    [active]
+  );
 
-  const getAlertConfig = (type) => {
-    switch (type) {
-      case 'trial_ending': return { icon: <Clock size={20} />, color: 'var(--status-warning)', bg: 'var(--status-warning-bg)', title: 'Subscription Ending Soon' };
-      case 'no_login': return { icon: <Activity size={20} />, color: 'var(--status-info)', bg: 'var(--status-info-bg)', title: 'No Login (14+ days)' };
-      case 'suspended_expired': return { icon: <AlertTriangle size={20} />, color: 'var(--status-danger)', bg: 'var(--status-danger-bg)', title: 'Gym Suspended (Expired)' };
-      default: return { icon: <AlertTriangle size={20} />, color: 'var(--text-primary)', bg: 'var(--bg-glass)', title: 'Alert' };
-    }
-  };
+  const visibleAlerts = filter === 'all' ? active : active.filter((a) => a.type === filter);
 
   const handleRenewClick = (gym) => {
-    setRenewalForm({ 
-      gymId: gym.id, 
-      gymName: gym.gym_name, 
-      months: '1', 
-      customDays: '', 
-      amount: '3000' 
-    });
+    setRenewalForm({ ...EMPTY_RENEWAL, gymId: gym.id, gymName: gym.gym_name });
     setShowRenewModal(true);
   };
 
@@ -76,195 +80,198 @@ export default function AdminAlertsPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const payload = {
+      await api.post(`/admin/gyms/${renewalForm.gymId}/renew`, {
         amount: Number(renewalForm.amount),
         months: renewalForm.months === 'custom' ? 0 : Number(renewalForm.months),
-        customDays: renewalForm.months === 'custom' ? Number(renewalForm.customDays) : 0
-      };
-
-      await api.post(`/admin/gyms/${renewalForm.gymId}/renew`, payload);
-      
-      toast.success(`🎉 ${renewalForm.gymName} Renewed! Access Reactivated.`);
+        customDays: renewalForm.months === 'custom' ? Number(renewalForm.customDays) : 0,
+      });
+      toast.success(`${renewalForm.gymName} renewed — access reactivated.`);
       setShowRenewModal(false);
-      fetchAlerts(); // Refresh list
+      fetchAlerts();
     } catch (err) {
-      toast.error('Failed to renew subscription');
+      toast.error(err.response?.data?.message || 'Could not renew this subscription.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
+  const loading = alerts === null;
+
   return (
-    <div className="admin-container">
-      {/* ── Premium Header ── */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-end', flexWrap: 'wrap', gap: '16px', marginBottom: 'var(--space-xl)' }}>
-        <div>
-          <h1 className="page-title">Action <span>Center</span></h1>
-          <p className="page-subtitle">Manage urgent alerts and gym subscriptions</p>
-        </div>
-        
-        <div style={{ display: 'flex', gap: '12px' }}>
-          <div style={{ padding: '8px 16px', borderRadius: '12px', background: 'var(--status-danger-bg)', border: '1px solid var(--status-danger)', color: 'var(--status-danger)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '14px' }}>
-            <AlertTriangle size={16} /> {stats.suspended} Suspended
-          </div>
-          <div style={{ padding: '8px 16px', borderRadius: '12px', background: 'var(--status-warning-bg)', border: '1px solid var(--status-warning)', color: 'var(--status-warning)', display: 'flex', alignItems: 'center', gap: '8px', fontWeight: '700', fontSize: '14px' }}>
-            <Clock size={16} /> {stats.expiring} Expiring
-          </div>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Alerts"
+        subtitle="Gyms needing attention"
+        actions={
+          !loading && (
+            <>
+              <Badge variant="danger" dot>
+                {stats.suspended} suspended
+              </Badge>
+              <Badge variant="warning" dot>
+                {stats.expiring} expiring
+              </Badge>
+            </>
+          )
+        }
+      />
 
-      {/* ── Filters ── */}
-      <div className="filter-tabs" style={{ marginBottom: 'var(--space-xl)' }}>
-        <button className={`filter-tab ${filter === 'all' ? 'active' : ''}`} onClick={() => setFilter('all')}>
-          All Alerts ({stats.total})
-        </button>
-        <button className={`filter-tab ${filter === 'suspended_expired' ? 'active' : ''}`} onClick={() => setFilter('suspended_expired')}>
-          Suspended ({stats.suspended})
-        </button>
-        <button className={`filter-tab ${filter === 'trial_ending' ? 'active' : ''}`} onClick={() => setFilter('trial_ending')}>
-          Expiring Soon ({stats.expiring})
-        </button>
-        <button className={`filter-tab ${filter === 'no_login' ? 'active' : ''}`} onClick={() => setFilter('no_login')}>
-          Inactive ({stats.inactive})
-        </button>
-      </div>
+      <Tabs
+        className="mb-5"
+        value={filter}
+        onChange={setFilter}
+        items={[
+          { key: 'all', label: 'All', count: stats.total },
+          { key: 'suspended_expired', label: 'Suspended', count: stats.suspended },
+          { key: 'trial_ending', label: 'Expiring', count: stats.expiring },
+          { key: 'no_login', label: 'Inactive', count: stats.inactive },
+        ]}
+      />
 
-      {/* ── Alert Grid ── */}
       {loading ? (
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', padding: '100px 0', color: 'var(--text-muted)' }}>
-          <Loader2 className="spin" size={48} style={{ color: 'var(--accent-primary)', marginBottom: '16px' }} />
-          <p style={{ fontWeight: '600' }}>Scanning for alerts...</p>
-        </div>
+        <ListSkeleton rows={4} />
       ) : visibleAlerts.length === 0 ? (
-        <div className="empty-state" style={{ background: 'var(--bg-secondary)', borderRadius: '24px', border: '1px solid var(--border-color)', padding: '60px 20px' }}>
-          <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: 'var(--status-active-bg)', color: 'var(--status-active)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 24px' }}>
-            <CheckCircle2 size={40} />
-          </div>
-          <h3>All Clear!</h3>
-          <p>No alerts require your attention right now.</p>
-        </div>
+        <EmptyState
+          icon={CheckCircle2}
+          title="All clear"
+          description="No alerts need your attention right now."
+        />
       ) : (
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: '20px' }}>
-          {visibleAlerts.map(a => {
-            const config = getAlertConfig(a.type);
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          {visibleAlerts.map((a) => {
+            const config = ALERT_CONFIG[a.type] ?? ALERT_CONFIG.suspended_expired;
+            const tone = TONE_CLASSES[config.tone];
+            const Icon = config.icon;
+
             return (
-              <div key={a.id} className="card" style={{ 
-                position: 'relative', 
-                overflow: 'hidden', 
-                display: 'flex', 
-                flexDirection: 'column',
-                padding: '24px',
-                borderTop: `4px solid ${config.color}`,
-                boxShadow: 'var(--shadow-sm)',
-                transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)'
-              }}>
-                {/* Dismiss Button */}
-                <button 
-                  onClick={() => setDismissed(p => [...p, a.id])}
-                  style={{ position: 'absolute', top: '16px', right: '16px', background: 'none', border: 'none', color: 'var(--text-muted)', cursor: 'pointer', padding: '4px', borderRadius: '50%', transition: 'all 0.2s' }}
-                  onMouseOver={e => e.currentTarget.style.background = 'var(--bg-tertiary)'}
-                  onMouseOut={e => e.currentTarget.style.background = 'none'}
+              <article
+                key={a.id}
+                className={cn(
+                  'relative flex flex-col p-5 bg-surface-2 border border-line border-t-4 rounded-xl shadow-card',
+                  tone.bar
+                )}
+              >
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="absolute top-3 right-3 text-muted"
+                  onClick={() => setDismissed((p) => [...p, a.id])}
+                  aria-label={`Dismiss alert for ${a.gym.gym_name}`}
                 >
-                  <X size={16} />
-                </button>
+                  <X className="size-4" aria-hidden="true" />
+                </Button>
 
-                <div style={{ display: 'flex', alignItems: 'flex-start', gap: '16px', marginBottom: '16px' }}>
-                  <div style={{ width: '48px', height: '48px', borderRadius: '14px', background: config.bg, color: config.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    {config.icon}
-                  </div>
-                  <div style={{ paddingRight: '20px' }}>
-                    <h4 style={{ fontSize: '15px', fontWeight: '800', color: config.color, marginBottom: '4px' }}>{config.title}</h4>
-                    <p style={{ fontSize: '13px', color: 'var(--text-secondary)', lineHeight: '1.4' }}>{a.message}</p>
+                <div className="flex items-start gap-3 mb-4 pr-8">
+                  <span className={cn('flex items-center justify-center size-11 rounded-xl shrink-0', tone.chip)}>
+                    <Icon className="size-5" aria-hidden="true" />
+                  </span>
+                  <div className="min-w-0">
+                    <h3 className={cn('text-sm font-bold', tone.title)}>{config.title}</h3>
+                    <p className="text-xs text-body mt-0.5 leading-relaxed">{a.message}</p>
                   </div>
                 </div>
 
-                <div style={{ background: 'var(--bg-tertiary)', borderRadius: '12px', padding: '16px', marginBottom: '20px', flex: 1 }}>
-                  <h3 style={{ fontSize: '18px', fontWeight: '900', color: 'var(--text-primary)', marginBottom: '4px' }}>{a.gym.gym_name}</h3>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-muted)', marginBottom: '8px' }}>
-                    <MapPin size={14} /> {a.gym.city || 'No City'} • {a.gym.owner_name}
-                  </div>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px', color: 'var(--text-primary)', fontWeight: '600' }}>
-                    <Phone size={14} style={{ color: 'var(--text-muted)' }} /> {a.gym.phone || 'No Phone'}
-                  </div>
+                <div className="p-3.5 rounded-xl bg-surface-3 mb-4 grow">
+                  <p className="text-base font-bold text-heading truncate">{a.gym.gym_name}</p>
+                  <p className="flex items-center gap-1.5 text-xs text-muted mt-1">
+                    <MapPin className="size-3.5 shrink-0" aria-hidden="true" />
+                    <span className="truncate">
+                      {a.gym.city || 'No city'} · {a.gym.owner_name}
+                    </span>
+                  </p>
+                  <p className="flex items-center gap-1.5 text-xs font-semibold text-body mt-1">
+                    <Phone className="size-3.5 text-muted shrink-0" aria-hidden="true" />
+                    {a.gym.phone || 'No phone'}
+                  </p>
                 </div>
 
-                <div style={{ display: 'flex', gap: '10px' }}>
-                  <button 
-                    className="btn btn-whatsapp" 
-                    style={{ flex: 1, padding: '10px' }}
-                    onClick={() => window.open(getWhatsAppLink(a.gym.phone, `Hello ${a.gym.owner_name}, regarding your Core Gym account: ${a.message}`), '_blank')}
+                <div className="flex gap-2">
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    className="grow"
+                    onClick={() =>
+                      window.open(
+                        getWhatsAppLink(
+                          a.gym.phone,
+                          `Hello ${a.gym.owner_name}, regarding your ${APP_NAME} account: ${a.message}`
+                        ),
+                        '_blank',
+                        'noopener,noreferrer'
+                      )
+                    }
                   >
-                    <MessageCircle size={16} /> Message
-                  </button>
-                  
+                    <MessageCircle className="size-4" aria-hidden="true" />
+                    Message
+                  </Button>
+
                   {(a.type === 'suspended_expired' || a.type === 'trial_ending') && (
-                    <button className="btn btn-primary" style={{ padding: '10px 16px' }} onClick={() => handleRenewClick(a.gym)}>
+                    <Button size="sm" onClick={() => handleRenewClick(a.gym)}>
                       Renew
-                    </button>
+                    </Button>
                   )}
-                  
-                  <button className="btn btn-secondary" style={{ padding: '10px 16px' }} onClick={() => navigate(`/admin/gyms/${a.gym.id}`)}>
-                    Detail
-                  </button>
+
+                  <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/gyms/${a.gym.id}`)}>
+                    Details
+                  </Button>
                 </div>
-              </div>
+              </article>
             );
           })}
         </div>
       )}
 
-      {/* ── Renew Modal ── */}
-      {showRenewModal && (
-        <div className="modal-backdrop" onClick={() => setShowRenewModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <div className="modal-header">
-              <h2 className="modal-title">Renew Gym Access</h2>
-              <button className="modal-close" onClick={() => setShowRenewModal(false)}><X size={20} /></button>
-            </div>
-            
-            <div style={{ background: 'var(--bg-tertiary)', padding: '16px', borderRadius: '12px', marginBottom: '24px' }}>
-              <p style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
-                Reactivating <strong>{renewalForm.gymName}</strong>. This action will log a payment and update their subscription end date.
-              </p>
-            </div>
+      <Modal
+        open={showRenewModal}
+        onClose={() => setShowRenewModal(false)}
+        title="Renew gym access"
+        description={`Reactivating ${renewalForm.gymName}. This logs a payment and extends the subscription end date.`}
+      >
+        <form className="flex flex-col gap-4" onSubmit={handleRenewSubmit}>
+          <Select
+            label="Duration"
+            value={renewalForm.months}
+            onChange={(e) => setRenewalForm({ ...renewalForm, months: e.target.value })}
+          >
+            <option value="1">1 month</option>
+            <option value="3">3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">1 year</option>
+            <option value="custom">Custom days</option>
+          </Select>
 
-            <form onSubmit={handleRenewSubmit}>
-              <div className="form-group">
-                <label className="form-label">Duration</label>
-                <select className="form-select" value={renewalForm.months} onChange={e => setRenewalForm({...renewalForm, months: e.target.value})}>
-                  <option value="1">1 Month</option>
-                  <option value="3">3 Months</option>
-                  <option value="6">6 Months</option>
-                  <option value="12">1 Year</option>
-                  <option value="custom">Custom Days</option>
-                </select>
-              </div>
-              
-              {renewalForm.months === 'custom' && (
-                <div className="form-group">
-                  <label className="form-label">Custom Days</label>
-                  <input required type="text" inputMode="numeric" className="form-input" placeholder="e.g. 15" value={renewalForm.customDays} onChange={e => setRenewalForm({...renewalForm, customDays: e.target.value})} />
-                </div>
-              )}
+          {renewalForm.months === 'custom' && (
+            <Input
+              label="Custom days"
+              required
+              type="number"
+              min="1"
+              placeholder="e.g. 15"
+              value={renewalForm.customDays}
+              onChange={(e) => setRenewalForm({ ...renewalForm, customDays: e.target.value })}
+            />
+          )}
 
-              <div className="form-group">
-                <label className="form-label">Payment Amount Collected (PKR)*</label>
-                <div style={{ position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: '16px', top: '50%', transform: 'translateY(-50%)', color: 'var(--text-muted)', fontWeight: '700' }}>Rs.</span>
-                  <input required type="text" inputMode="numeric" className="form-input" style={{ paddingLeft: '48px' }} placeholder="2500" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
-                </div>
-              </div>
+          <Input
+            label="Payment collected"
+            required
+            type="text"
+            inputMode="numeric"
+            placeholder="2500"
+            value={renewalForm.amount}
+            onChange={(e) => setRenewalForm({ ...renewalForm, amount: e.target.value })}
+          />
 
-              <div style={{ display: 'flex', gap: '12px', marginTop: '32px' }}>
-                <button type="button" className="btn btn-secondary" style={{ flex: 1 }} onClick={() => setShowRenewModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary" style={{ flex: 2 }} disabled={isSubmitting}>
-                  {isSubmitting ? <><Loader2 className="spin" size={18} /> Processing...</> : 'Complete Renewal'}
-                </button>
-              </div>
-            </form>
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowRenewModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSubmitting}>
+              Complete renewal
+            </Button>
           </div>
-        </div>
-      )}
-    </div>
+        </form>
+      </Modal>
+    </Page>
   );
 }

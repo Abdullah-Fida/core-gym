@@ -1,44 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { Search, UserPlus, Trash2 } from 'lucide-react';
+import { Search, UserPlus, Trash2, Users } from 'lucide-react';
 import { useToast } from '../../contexts/ToastContext';
-import { useConfirm } from '../../contexts/ConfirmContext';
-import { getInitials, daysFromNow, formatDateShort, calculateMemberStatus } from '../../lib/utils';
-import { MemberSkeleton, StateView } from '../../components/common/StateView';
-import { ModernLoader } from '../../components/common/ModernLoader';
+import { daysFromNow, formatDateShort, calculateMemberStatus } from '../../lib/utils';
 import api from '../../lib/api';
-import '../../styles/members.css';
-import '../../styles/loading.css';
+import { cn } from '../../lib/cn';
+import {
+  Page,
+  PageHeader,
+  Button,
+  Input,
+  Select,
+  Tabs,
+  Avatar,
+  MemberStatusBadge,
+  EmptyState,
+  ListSkeleton,
+  DeleteChoiceModal,
+} from '../../components/ui';
+
+const STATUS_TABS = [
+  { key: 'all', label: 'All' },
+  { key: 'active', label: 'Active' },
+  { key: 'trial', label: 'Trial' },
+  { key: 'due_soon', label: 'Due Soon' },
+  { key: 'expired', label: 'Expired' },
+  { key: 'inactive', label: 'Inactive' },
+];
+
+/** Newest expiry across a member's payments, falling back to the cached column. */
+function resolveExpiry(member) {
+  if (member.latest_expiry) return member.latest_expiry;
+  if (!member.payments?.length) return null;
+  const sorted = [...member.payments].sort(
+    (a, b) => new Date(b.expiry_date || b.payment_date || 0) - new Date(a.expiry_date || a.payment_date || 0)
+  );
+  return sorted[0].expiry_date || sorted[0].payment_date || null;
+}
+
+function avatarTone(status, days) {
+  if (status === 'expired' || (days !== null && days < 0)) return 'danger';
+  if (status === 'due_soon' || (days !== null && days <= 3)) return 'warning';
+  if (status === 'inactive' || days === null) return 'neutral';
+  if (status === 'trial') return 'info';
+  return 'accent';
+}
+
+function remainingLabel(days) {
+  if (days === null) return { text: 'No payment', tone: 'text-muted' };
+  if (days < 0) return { text: `${Math.abs(days)}d overdue`, tone: 'text-danger' };
+  if (days === 0) return { text: 'Expires today', tone: 'text-warning' };
+  if (days <= 3) return { text: `${days}d left`, tone: 'text-warning' };
+  return { text: `${days}d left`, tone: 'text-success' };
+}
 
 export default function MembersListPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const confirm = useConfirm();
   const [searchParams] = useSearchParams();
+
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState(searchParams.get('status') || 'all');
   const [sort, setSort] = useState('name');
-  const [errorDetail, setErrorDetail] = useState(null);
-  
-
   const [membersData, setMembersData] = useState(null);
+  const [deleteTarget, setDeleteTarget] = useState(null);
+  const [deletingIds, setDeletingIds] = useState([]);
 
   useEffect(() => {
     const fetchMembers = async () => {
       try {
         const res = await api.get('/members');
-        let results = res.data.data || [];
-        results = results.filter(m => m.status !== 'deleted');
-        
-        results = results.map(m => {
-           let lastPayDate = null;
-           if (m.payments && m.payments.length > 0) {
-             const sorted = [...m.payments].sort((a,b) => new Date(b.payment_date).getTime() - new Date(a.payment_date).getTime());
-             lastPayDate = sorted[0].payment_date;
-           }
-           const status = calculateMemberStatus(m);
-           return { ...m, status, lastPayDate };
-        });
+        const results = (res.data.data || [])
+          .filter((m) => m.status !== 'deleted')
+          .map((m) => {
+            const sorted = m.payments?.length
+              ? [...m.payments].sort((a, b) => new Date(b.payment_date) - new Date(a.payment_date))
+              : [];
+            return {
+              ...m,
+              status: calculateMemberStatus(m),
+              lastPayDate: sorted[0]?.payment_date ?? null,
+            };
+          });
         setMembersData(results);
       } catch (err) {
         console.error(err);
@@ -48,290 +91,207 @@ export default function MembersListPage() {
     fetchMembers();
   }, []);
 
-  const processedMembers = (() => {
+  const members = useMemo(() => {
     if (!membersData) return null;
     let results = [...membersData];
-    
+
     if (search) {
       const s = search.toLowerCase();
-      results = results.filter(m => {
-        const nameMatch = (m.name || '').toLowerCase().includes(s);
-        const phoneMatch = String(m.phone || '').includes(s);
-        return nameMatch || phoneMatch;
-      });
+      results = results.filter(
+        (m) => (m.name || '').toLowerCase().includes(s) || String(m.phone || '').includes(s)
+      );
     }
-    
+
     if (statusFilter !== 'all') {
-      results = results.filter(m => m.status === statusFilter);
+      results = results.filter((m) => m.status === statusFilter);
     }
-    
+
     if (sort === 'name') {
       results.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
     } else if (sort === 'join_date') {
-      results.sort((a, b) => {
-        const da = a.join_date ? new Date(a.join_date).getTime() : 0;
-        const db2 = b.join_date ? new Date(b.join_date).getTime() : 0;
-        return db2 - da;
-      });
+      results.sort((a, b) => new Date(b.join_date || 0) - new Date(a.join_date || 0));
     } else if (sort === 'overdue') {
       results.sort((a, b) => {
-        let aExp = a.latest_expiry;
-        if (!aExp && a.payments && a.payments.length > 0) {
-          const sortedA = [...a.payments].sort((x, y) => new Date(y.expiry_date || y.payment_date || 0) - new Date(x.expiry_date || x.payment_date || 0));
-          aExp = sortedA[0].expiry_date || sortedA[0].payment_date;
-        }
-        let bExp = b.latest_expiry;
-        if (!bExp && b.payments && b.payments.length > 0) {
-          const sortedB = [...b.payments].sort((x, y) => new Date(y.expiry_date || y.payment_date || 0) - new Date(x.expiry_date || x.payment_date || 0));
-          bExp = sortedB[0].expiry_date || sortedB[0].payment_date;
-        }
-        const da = aExp ? daysFromNow(aExp) : 9999;
-        const db2 = bExp ? daysFromNow(bExp) : 9999;
-        return da - db2;
+        const da = resolveExpiry(a) ? daysFromNow(resolveExpiry(a)) : 9999;
+        const db = resolveExpiry(b) ? daysFromNow(resolveExpiry(b)) : 9999;
+        return da - db;
       });
     }
     return results;
-  })();
+  }, [membersData, search, statusFilter, sort]);
 
-  const loading = !membersData;
-  const members = processedMembers || [];
-  const totalCount = members.length;
+  const tabsWithCounts = useMemo(
+    () =>
+      STATUS_TABS.map((tab) => ({
+        ...tab,
+        count:
+          tab.key === 'all'
+            ? membersData?.length
+            : membersData?.filter((m) => m.status === tab.key).length,
+      })),
+    [membersData]
+  );
 
-  const [deleteModal, setDeleteModal] = useState({ isOpen: false, memberId: null, name: '' });
-  const [deletingIds, setDeletingIds] = useState([]);
-
-  const handleDeleteMember = (e, id, name) => {
-    e.stopPropagation();
-    setDeleteModal({ isOpen: true, memberId: id, name });
-  };
-
-  const processDeletion = async (permanent = false) => {
-    const { memberId, name } = deleteModal;
-    setDeleteModal({ isOpen: false, memberId: null, name: '' });
-    
-    // Start animation
-    setDeletingIds(prev => [...prev, memberId]);
-    await new Promise(r => setTimeout(r, 400));
+  const processDeletion = async (permanent) => {
+    const { id, name } = deleteTarget;
+    setDeleteTarget(null);
+    setDeletingIds((prev) => [...prev, id]);
+    await new Promise((r) => setTimeout(r, 300));
 
     try {
-      if (permanent) {
-        await api.delete(`/members/${memberId}?permanent=true`);
-        toast.success(`${name} and all associated records permanently deleted`);
-      } else {
-        await api.delete(`/members/${memberId}`);
-        toast.success(`${name} removed (financial records preserved)`);
-      }
-      setMembersData(prev => prev.filter(m => m.id !== memberId));
+      await api.delete(`/members/${id}${permanent ? '?permanent=true' : ''}`);
+      toast.success(
+        permanent
+          ? `${name} and all associated records permanently deleted`
+          : `${name} removed (financial records preserved)`
+      );
+      setMembersData((prev) => prev.filter((m) => m.id !== id));
     } catch (err) {
-      console.error('Failed to delete member locally', err);
-      toast.error('Could not delete.');
-      setDeletingIds(prev => prev.filter(id => id !== memberId)); // revert animation if failed
+      console.error('Failed to delete member', err);
+      toast.error(err.response?.data?.message || 'Could not delete this member.');
+      setDeletingIds((prev) => prev.filter((x) => x !== id));
     }
   };
 
-  const tabs = [
-    { key: 'all', label: `All` },
-    { key: 'active', label: `Active` },
-    { key: 'trial', label: `Trial` },
-    { key: 'inactive', label: `Inactive` },
-    { key: 'due_soon', label: `Due Soon` },
-    { key: 'expired', label: `Expired` },
-  ];
+  const loading = members === null;
+  const list = members ?? [];
 
   return (
-    <div className="page-container">
-      <div className="page-header" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-        <div>
-          <h1 className="page-title">Members</h1>
-          <p className="page-subtitle">{totalCount} total members</p>
-        </div>
-        <button className="btn btn-primary btn-sm" onClick={() => navigate('/members/add')}>
-          <UserPlus size={16} /> Add
-        </button>
-      </div>
+    <Page>
+      <PageHeader
+        title="Members"
+        subtitle={loading ? 'Loading…' : `${membersData.length} total`}
+        actions={
+          <Button onClick={() => navigate('/members/add')}>
+            <UserPlus className="size-4" aria-hidden="true" />
+            Add member
+          </Button>
+        }
+      />
 
-      {/* Search */}
-      <div className="search-bar">
-        <Search />
-        <input placeholder="Search by name or phone..." value={search} onChange={e => setSearch(e.target.value)} />
-      </div>
-
-      {/* Filter Tabs */}
-      <div className="filter-tabs">
-        {tabs.map(t => (
-          <button key={t.key} className={`filter-tab ${statusFilter === t.key ? 'active' : ''}`} onClick={() => setStatusFilter(t.key)}>
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* Sort */}
-      <div style={{ marginBottom: 'var(--space-md)', display: 'flex', gap: 'var(--space-sm)' }}>
-        <select className="form-select" style={{ padding: '8px 12px', fontSize: 'var(--font-xs)' }} value={sort} onChange={e => setSort(e.target.value)}>
-          <option value="name">A → Z</option>
-          <option value="join_date">Newest First</option>
-          <option value="overdue">Most Overdue</option>
-        </select>
-      </div>
-
-      {/* States: Loading -> Error -> Empty -> List */}
-      <div className="members-content">
-        {loading ? (
-          <div style={{ padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <ModernLoader type="morph" text="Syncing Member Directory..." />
-          </div>
-        ) : members.length === 0 ? (
-          <StateView 
-            type="empty" 
-            title="No members found" 
-            description={search || statusFilter !== 'all' ? "Try changing your search or filters." : "Start by adding your first gym member."}
+      <div className="flex flex-col gap-3 mb-5">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted"
+            aria-hidden="true"
           />
-        ) : (
-          members.map(member => {
-            let actualExpiry = member.latest_expiry;
-            if (!actualExpiry && member.payments && member.payments.length > 0) {
-              const sorted = [...member.payments].sort((a, b) => new Date(b.expiry_date || b.payment_date || 0) - new Date(a.expiry_date || a.payment_date || 0));
-              actualExpiry = sorted[0].expiry_date || sorted[0].payment_date;
-            }
-            const days = actualExpiry ? daysFromNow(actualExpiry) : null;
-            const isExpired = member.status === 'expired' || (days !== null && days < 0);
-            const isDueSoon = member.status === 'due_soon' || (days !== null && days >= 0 && days <= 3);
+          <Input
+            type="search"
+            className="pl-9"
+            placeholder="Search by name or phone…"
+            aria-label="Search members"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
+        </div>
+
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <Tabs items={tabsWithCounts} value={statusFilter} onChange={setStatusFilter} size="sm" />
+          <Select
+            aria-label="Sort members"
+            className="w-auto text-xs py-1.5"
+            value={sort}
+            onChange={(e) => setSort(e.target.value)}
+          >
+            <option value="name">A → Z</option>
+            <option value="join_date">Newest first</option>
+            <option value="overdue">Most overdue</option>
+          </Select>
+        </div>
+      </div>
+
+      {loading ? (
+        <ListSkeleton rows={6} />
+      ) : list.length === 0 ? (
+        <EmptyState
+          icon={Users}
+          title="No members found"
+          description={
+            search || statusFilter !== 'all'
+              ? 'Try a different search or filter.'
+              : 'Add your first gym member to get started.'
+          }
+          action={
+            !search && statusFilter === 'all' ? (
+              <Button onClick={() => navigate('/members/add')}>
+                <UserPlus className="size-4" aria-hidden="true" />
+                Add member
+              </Button>
+            ) : null
+          }
+        />
+      ) : (
+        <ul className="flex flex-col gap-2">
+          {list.map((member) => {
+            const days = resolveExpiry(member) ? daysFromNow(resolveExpiry(member)) : null;
+            const remaining = remainingLabel(days);
+            const isDeleting = deletingIds.includes(member.id);
 
             return (
-              <div 
-                key={member.id} 
-                className="member-card" 
-                onClick={() => navigate(`/members/${member.id}`)}
-                style={deletingIds.includes(member.id) ? { transform: 'translateX(100px)', opacity: 0, transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)', pointerEvents: 'none' } : { transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)' }}
+              <li
+                key={member.id}
+                className={cn(
+                  'transition-all duration-300',
+                  isDeleting && 'translate-x-24 opacity-0 pointer-events-none'
+                )}
               >
-                <div className="avatar" style={{
-                  background: isExpired ? 'var(--status-danger-bg)' : isDueSoon ? 'var(--status-warning-bg)' : (member.status === 'inactive' || days === null) ? 'var(--bg-secondary)' : 'var(--accent-gradient)',
-                  color: isExpired ? 'var(--status-danger)' : isDueSoon ? 'var(--status-warning)' : (member.status === 'inactive' || days === null) ? 'var(--text-muted)' : 'white'
-                }}>
-                  {getInitials(member.name || '??')}
-                </div>
-                <div className="member-info">
-                  <div className="member-name">{member.name}</div>
-                  <div className="member-phone">{member.phone}</div>
-                  {member.status === 'trial' && (
-                    <div style={{ fontSize: 12, color: 'var(--text-muted)', marginTop: 4 }}>Trial Mode</div>
-                  )}
-                </div>
-                <div className="member-meta">
-                  <span className={`badge badge-${member.status === 'trial' ? 'secondary' : (member.status === 'active' && days !== null) ? 'active' : member.status === 'due_soon' ? 'warning' : member.status === 'expired' ? 'danger' : 'secondary'}`}>
-                    <span className={`badge-dot ${member.status === 'trial' ? 'secondary' : (member.status === 'active' && days !== null) ? 'active' : member.status === 'due_soon' ? 'warning' : member.status === 'expired' ? 'danger' : 'secondary'}`}></span>
-                    {(member.status === 'active' && days !== null) ? 'Active' : member.status === 'due_soon' ? 'Due Soon' : member.status === 'expired' ? 'Expired' : member.status === 'trial' ? 'Trial' : 'Inactive'}
-                  </span>
-                  <div className="member-days" style={{ color: isExpired ? 'var(--status-danger)' : isDueSoon ? 'var(--status-warning)' : member.status === 'inactive' ? 'var(--text-muted)' : 'var(--status-active)' }}>
-                    {days === null ? 'No payment' : isExpired ? `${Math.abs(days)}d overdue` : days === 0 ? 'Today' : `${days}d left`}
+                <div className="group flex items-center gap-3 p-3 sm:p-4 bg-surface-2 border border-line rounded-xl transition-colors hover:border-line-hover">
+                  {/*
+                    Previously the whole row was a clickable <div> with no role,
+                    no tabIndex and no key handler — the primary way to open a
+                    member was unreachable by keyboard.
+                  */}
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/members/${member.id}`)}
+                    className="flex items-center gap-3 grow min-w-0 text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <Avatar name={member.name} tone={avatarTone(member.status, days)} />
+                    <span className="flex flex-col min-w-0">
+                      <span className="font-semibold text-heading truncate">{member.name}</span>
+                      <span className="text-xs text-muted truncate">{member.phone}</span>
+                      {member.lastPayDate && (
+                        <span className="text-[0.6875rem] text-muted mt-0.5">
+                          Last paid {formatDateShort(member.lastPayDate)}
+                        </span>
+                      )}
+                    </span>
+                  </button>
+
+                  <div className="flex flex-col items-end gap-1 shrink-0">
+                    <MemberStatusBadge status={member.status} />
+                    <span className={cn('text-xs font-semibold tabular-nums', remaining.tone)}>
+                      {remaining.text}
+                    </span>
                   </div>
-                  {member.lastPayDate && (
-                     <div className="member-last-pay">Last: {formatDateShort(member.lastPayDate)}</div>
-                  )}
+
+                  <Button
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted hover:text-danger hover:bg-danger-soft shrink-0"
+                    onClick={() => setDeleteTarget({ id: member.id, name: member.name })}
+                    aria-label={`Delete ${member.name}`}
+                  >
+                    <Trash2 className="size-4" aria-hidden="true" />
+                  </Button>
                 </div>
-                
-                <button 
-                  className="btn-icon-danger" 
-                  style={{ marginLeft: 'var(--space-sm)', padding: 8, background: 'none', border: 'none', color: 'var(--status-danger)', cursor: 'pointer' }}
-                  onClick={(e) => handleDeleteMember(e, member.id, member.name)}
-                  title="Delete Member"
-                >
-                  <Trash2 size={18} />
-                </button>
-              </div>
+              </li>
             );
-          })
-        )}
-      </div>
-
-      {/* ERROR DETAIL MODAL (The 'proper way to tell the issue') */}
-      {errorDetail && (
-        <div className="modal-backdrop" onClick={() => setErrorDetail(null)}>
-          <div className="modal-content" style={{ maxWidth: 500, borderColor: 'var(--status-danger)', borderStyle: 'solid' }} onClick={e => e.stopPropagation()}>
-            <h2 style={{ color: 'var(--status-danger)', marginBottom: 'var(--space-md)' }}>❌ Link-data Conflict</h2>
-            <div style={{ background: '#f8f8f8', padding: 'var(--space-md)', border: '1px solid #ddd', borderRadius: 4, fontFamily: 'monospace', fontSize: 12, marginBottom: 'var(--space-md)', color: '#444', overflowX: 'auto' }}>
-              <p><strong>ISSUE:</strong> {errorDetail.title}</p>
-              <hr style={{ margin: '10px 0' }} />
-              <p><strong>DB DETAIL:</strong> {errorDetail.detail}</p>
-              {errorDetail.hint && <p style={{ marginTop: 5, color: 'var(--primary)', fontWeight: 700 }}><strong>HINT:</strong> {errorDetail.hint}</p>}
-            </div>
-            <p style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)', marginBottom: 'var(--space-lg)' }}>
-              This member cannot be deleted yet because they have hidden records (like old notifications or logs). Contact system support or try clearing their data first.
-            </p>
-            <button className="btn btn-primary btn-block" onClick={() => setErrorDetail(null)}>Close Diagnostic</button>
-          </div>
-        </div>
+          })}
+        </ul>
       )}
-      {/* DELETE OPTIONS MODAL */}
-      {deleteModal.isOpen && (
-        <div className="modal-backdrop" style={{ alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => setDeleteModal({ isOpen: false, memberId: null, name: '' })}>
-          <div style={{ 
-            backgroundColor: 'var(--bg-secondary)',
-            maxWidth: 450, 
-            width: '90%',
-            borderRadius: '28px', 
-            border: '1px solid var(--border-color)', 
-            textAlign: 'center', 
-            padding: 'var(--space-xl)',
-            margin: '0 var(--space-md)',
-            animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-            boxShadow: 'var(--shadow-2xl)',
-            position: 'relative'
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ marginBottom: 'var(--space-lg)' }}>
-              <div style={{ 
-                width: 74, 
-                height: 74, 
-                background: 'rgba(248, 113, 113, 0.1)', 
-                borderRadius: '22px', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                margin: '0 auto 24px',
-                border: '1px solid rgba(248, 113, 113, 0.2)'
-              }}>
-                <Trash2 size={36} color="var(--status-danger)" />
-              </div>
-              <h2 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Delete Member</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', lineHeight: 1.6 }}>
-                How would you like to remove <strong>{deleteModal.name}</strong>?
-              </p>
-            </div>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button className="btn btn-secondary" style={{ 
-                textAlign: 'center', 
-                padding: '16px', 
-                display: 'block', 
-                width: '100%', 
-                height: 'auto',
-                borderRadius: '16px',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-tertiary)'
-              }} onClick={() => processDeletion(false)}>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 'var(--font-base)' }}>Option 1: Delete Profile Only</div>
-              </button>
+      <DeleteChoiceModal
+        open={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        title="Delete member"
+        name={deleteTarget?.name}
+        softDescription="The member is hidden from lists, but their payment history stays in your revenue reports."
+        hardDescription="Permanently deletes the member along with every payment, attendance record and notification. This cannot be undone."
+        onSoftDelete={() => processDeletion(false)}
+        onHardDelete={() => processDeletion(true)}
+      />
 
-              <button className="btn btn-danger" style={{ 
-                textAlign: 'center', 
-                padding: '16px', 
-                display: 'block', 
-                width: '100%', 
-                height: 'auto',
-                borderRadius: '16px',
-                background: 'rgba(248, 113, 113, 0.05)',
-                border: '1px solid rgba(248, 113, 113, 0.2)'
-              }} onClick={() => processDeletion(true)}>
-                <div style={{ fontWeight: 700, color: 'var(--status-danger)', fontSize: 'var(--font-base)' }}>Option 2: Delete Everything (Permanent)</div>
-              </button>
-
-              <button className="btn btn-secondary" style={{ marginTop: 12, width: '100%' }} onClick={() => setDeleteModal({ isOpen: false, memberId: null, name: '' })}>
-                Cancel
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-    </div>
+    </Page>
   );
 }

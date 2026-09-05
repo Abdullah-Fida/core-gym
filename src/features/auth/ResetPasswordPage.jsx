@@ -1,8 +1,9 @@
 import { useState } from 'react';
-import { useLocation, useNavigate, Link } from 'react-router-dom';
-import { Lock } from 'lucide-react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { Lock, CheckCircle2 } from 'lucide-react';
 import api from '../../lib/api';
-import '../../styles/auth.css';
+import { Button, Input } from '../../components/ui';
+import AuthShell from './AuthShell';
 
 export default function ResetPasswordPage() {
   const location = useLocation();
@@ -13,14 +14,24 @@ export default function ResetPasswordPage() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
-  
+
   const phone = location.state?.phone || '';
 
   const handleSubmit = async (e) => {
     e.preventDefault();
-    if (!otp || otp.length < 4) { setError('Enter valid OTP code'); return; }
-    if (password !== confirm) { setError('Passwords do not match'); return; }
-    
+    if (otp.trim().length < 4) {
+      setError('Enter the code from your phone.');
+      return;
+    }
+    if (password.length < 4) {
+      setError('Password must be at least 4 characters.');
+      return;
+    }
+    if (password !== confirm) {
+      setError('The two passwords do not match.');
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
@@ -28,52 +39,74 @@ export default function ResetPasswordPage() {
       setDone(true);
       setTimeout(() => navigate('/login'), 2000);
     } catch (err) {
-      setError(err.response?.data?.message || 'Failed to reset password');
-    } finally {
+      setError(err.response?.data?.message || 'Could not reset the password.');
       setLoading(false);
     }
   };
 
-  return (
-    <div className="auth-page">
-      <div className="auth-card">
-        <div className="auth-logo">
-          <div className="logo-icon">CG</div>
-          <h1>Reset Password</h1>
-          <p>Enter OTP and create new password</p>
+  if (done) {
+    return (
+      <AuthShell title="Password reset" subtitle="Taking you back to sign in…">
+        <div className="flex flex-col items-center text-center p-6 rounded-xl border border-line bg-surface-2">
+          <span className="flex items-center justify-center size-12 rounded-2xl bg-success-soft text-success mb-4">
+            <CheckCircle2 className="size-5" aria-hidden="true" />
+          </span>
+          <p className="text-sm text-muted">You can now sign in with your new password.</p>
         </div>
+      </AuthShell>
+    );
+  }
 
-        {done ? (
-          <div style={{ textAlign: 'center' }}>
-            <div style={{ fontSize: 48, marginBottom: 'var(--space-md)' }}>✅</div>
-            <h3>Password Reset!</h3>
-            <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Redirecting to login...</p>
-          </div>
-        ) : (
-          <>
-            {error && <div className="auth-error">{error}</div>}
-            <form className="auth-form" onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label className="form-label">OTP Code</label>
-                <input className="form-input" placeholder="Enter 4-6 digit code" value={otp} onChange={e => setOtp(e.target.value)} maxLength={6} style={{ textAlign: 'center', letterSpacing: 8, fontSize: 'var(--font-xl)' }} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">New Password</label>
-                <input className="form-input" type="password" placeholder="New password" value={password} onChange={e => setPassword(e.target.value)} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Confirm Password</label>
-                <input className="form-input" type="password" placeholder="Confirm new password" value={confirm} onChange={e => setConfirm(e.target.value)} />
-              </div>
-              <button type="submit" className="btn btn-primary btn-block btn-lg"><Lock size={18} /> Reset Password</button>
-            </form>
-          </>
+  return (
+    <AuthShell
+      title="Reset password"
+      subtitle={phone ? `Enter the code sent to ${phone}.` : 'Enter the code sent to your phone.'}
+    >
+      <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+        {error && (
+          <p role="alert" className="p-3 rounded-lg border border-danger/30 bg-danger-soft text-sm text-danger">
+            {error}
+          </p>
         )}
 
-        <div className="auth-footer">
-          <Link to="/login">← Back to Login</Link>
-        </div>
-      </div>
-    </div>
+        <Input
+          label="Verification code"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="000000"
+          maxLength={6}
+          className="text-center text-xl tracking-[0.5em] font-bold"
+          value={otp}
+          onChange={(e) => setOtp(e.target.value.replace(/\D/g, ''))}
+          required
+        />
+
+        <Input
+          label="New password"
+          type="password"
+          autoComplete="new-password"
+          placeholder="••••••••"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+
+        <Input
+          label="Confirm new password"
+          type="password"
+          autoComplete="new-password"
+          placeholder="••••••••"
+          value={confirm}
+          onChange={(e) => setConfirm(e.target.value)}
+          error={confirm && password !== confirm ? 'Passwords do not match' : undefined}
+          required
+        />
+
+        <Button type="submit" size="lg" block loading={loading}>
+          <Lock className="size-4" aria-hidden="true" />
+          Reset password
+        </Button>
+      </form>
+    </AuthShell>
   );
 }

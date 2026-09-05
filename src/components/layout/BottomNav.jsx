@@ -1,56 +1,72 @@
-import { Home, Users, CreditCard, LayoutGrid, Building2, AlertTriangle, LayoutDashboard, LogOut } from 'lucide-react';
+import { Users, LayoutGrid, Building2, AlertTriangle, LayoutDashboard, LogOut, Bell } from 'lucide-react';
 import { NavLink, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import { cn } from '../../lib/cn';
 
+const GYM_ITEMS = [
+  { to: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/members', icon: Users, label: 'Members' },
+  { to: '/action-center', icon: Bell, label: 'Follow-ups' },
+];
+
+const ADMIN_ITEMS = [
+  { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Overview' },
+  { to: '/admin/gyms', icon: Building2, label: 'Gyms' },
+  { to: '/admin/alerts', icon: AlertTriangle, label: 'Alerts' },
+];
+
+const itemClasses = (active) =>
+  cn(
+    'flex flex-col items-center justify-center gap-1 flex-1 min-w-0 py-2 px-1',
+    'text-[0.6875rem] font-semibold transition-colors duration-150',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset rounded-lg',
+    active ? 'text-accent' : 'text-muted hover:text-body'
+  );
+
+/**
+ * Mobile tab bar. `pb-safe` keeps it clear of the iPhone home indicator — the
+ * previous fixed bar had no safe-area inset and sat underneath it.
+ */
 export default function BottomNav({ onMoreClick }) {
   const { isAdmin, logout } = useAuth();
   const navigate = useNavigate();
-
-  if (isAdmin) {
-    return (
-      <nav className="bottom-nav">
-        <NavLink to="/admin/dashboard" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-          <LayoutDashboard size={22} />
-          <span>Overview</span>
-        </NavLink>
-        <NavLink to="/admin/gyms" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-          <Building2 size={22} />
-          <span>Gyms</span>
-        </NavLink>
-        <NavLink to="/admin/alerts" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-          <AlertTriangle size={22} />
-          <span>Alerts</span>
-        </NavLink>
-        <button 
-          className="bottom-nav-item" 
-          onClick={() => { logout(); navigate('/login'); }}
-          style={{ color: 'var(--status-danger)' }}
-        >
-          <LogOut size={22} />
-          <span>Logout</span>
-        </button>
-      </nav>
-    );
-  }
+  const items = isAdmin ? ADMIN_ITEMS : GYM_ITEMS;
 
   return (
-    <nav className="bottom-nav">
-      <NavLink to="/" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-        <Home size={22} />
-        <span>Home</span>
-      </NavLink>
-      <NavLink to="/members" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-        <Users size={22} />
-        <span>Members</span>
-      </NavLink>
-      <NavLink to="/action-center" className={({ isActive }) => `bottom-nav-item ${isActive ? 'active' : ''}`}>
-        <AlertTriangle size={22} />
-        <span>Action Center</span>
-      </NavLink>
-      <button className="bottom-nav-item" onClick={onMoreClick}>
-        <LayoutGrid size={22} />
-        <span>More</span>
-      </button>
+    <nav
+      className={cn(
+        'lg:hidden fixed bottom-0 inset-x-0 z-[600]',
+        'flex items-stretch',
+        'bg-surface-2/95 backdrop-blur-lg border-t border-line',
+        'pb-safe'
+      )}
+      aria-label="Primary"
+    >
+      {items.map((item) => (
+        <NavLink key={item.to} to={item.to} end={item.end} className={({ isActive }) => itemClasses(isActive)}>
+          <item.icon className="size-5.5" aria-hidden="true" />
+          <span className="truncate">{item.label}</span>
+        </NavLink>
+      ))}
+
+      {isAdmin ? (
+        <button
+          type="button"
+          className={cn(itemClasses(false), 'text-danger hover:text-danger')}
+          onClick={() => {
+            logout();
+            navigate('/login');
+          }}
+        >
+          <LogOut className="size-5.5" aria-hidden="true" />
+          <span>Logout</span>
+        </button>
+      ) : (
+        <button type="button" className={itemClasses(false)} onClick={onMoreClick}>
+          <LayoutGrid className="size-5.5" aria-hidden="true" />
+          <span>More</span>
+        </button>
+      )}
     </nav>
   );
 }

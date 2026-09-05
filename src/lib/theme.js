@@ -1,4 +1,20 @@
-export const THEME_STORAGE_KEY = 'core_ui_theme';
+import { STORAGE_KEYS } from './storageKeys';
+
+export const THEME_STORAGE_KEY = STORAGE_KEYS.uiTheme;
+
+/**
+ * Relative luminance (WCAG), used to decide whether text sitting *on* the
+ * accent should be black or white. Amber and lime need dark ink; indigo and
+ * blue need white. Hardcoding one value made half the presets unreadable.
+ */
+function readableInk(hex) {
+  const h = hex.replace('#', '');
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h;
+  const [r, g, b] = [0, 2, 4].map((i) => parseInt(full.slice(i, i + 2), 16) / 255);
+  const lin = (c) => (c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+  const luminance = 0.2126 * lin(r) + 0.7152 * lin(g) + 0.0722 * lin(b);
+  return luminance > 0.45 ? '#0b1116' : '#ffffff';
+}
 
 function createThemePreset({
   id,
@@ -8,8 +24,6 @@ function createThemePreset({
   primary,
   hover,
   secondary,
-  light,
-  border,
   rgb,
 }) {
   return {
@@ -24,12 +38,19 @@ function createThemePreset({
       'accent-gradient': primary,
       'accent-gradient-hover': hover,
       'accent-glow': `0 12px 24px rgba(${rgb}, 0.3)`,
-      'accent-light': light,
-      'accent-border': border,
+      'accent-contrast': readableInk(primary),
+      // NOTE: `accent-light` and `accent-border` are deliberately NOT set here.
+      // Each preset used to hardcode a dark value for them (e.g. #12213f), and
+      // because applyTheme writes these as inline styles on <html>, that dark
+      // value beat the `:root.light-mode` rule — every soft-accent surface
+      // stayed navy on a white page. They are now derived with color-mix()
+      // against the live surface colour in styles/theme.css, so they follow
+      // both the preset and the mode.
       'border-indigo': primary,
       primary,
       'loader-color': primary,
       'loader-gradient': primary,
+      'shadow-accent': `0 16px 30px rgba(${rgb}, 0.24)`,
       'shadow-indigo': `0 16px 30px rgba(${rgb}, 0.24)`,
       'shadow-neon': `0 0 24px rgba(${rgb}, 0.36)`,
     },
@@ -45,8 +66,6 @@ export const THEME_PRESETS = [
     primary: '#3b82f6',
     hover: '#2563eb',
     secondary: '#60a5fa',
-    light: '#12213f',
-    border: '#2a4f8d',
     rgb: '59, 130, 246',
   }),
   createThemePreset({
@@ -57,8 +76,6 @@ export const THEME_PRESETS = [
     primary: '#10b981',
     hover: '#059669',
     secondary: '#34d399',
-    light: '#102a24',
-    border: '#1f5d4f',
     rgb: '16, 185, 129',
   }),
   createThemePreset({
@@ -69,8 +86,6 @@ export const THEME_PRESETS = [
     primary: '#8b5cf6',
     hover: '#7c3aed',
     secondary: '#a78bfa',
-    light: '#21183b',
-    border: '#4b3482',
     rgb: '139, 92, 246',
   }),
   createThemePreset({
@@ -81,8 +96,6 @@ export const THEME_PRESETS = [
     primary: '#f59e0b',
     hover: '#d97706',
     secondary: '#fbbf24',
-    light: '#33240f',
-    border: '#6b4a1c',
     rgb: '245, 158, 11',
   }),
   createThemePreset({
@@ -93,8 +106,6 @@ export const THEME_PRESETS = [
     primary: '#06b6d4',
     hover: '#0891b2',
     secondary: '#67e8f9',
-    light: '#0f2830',
-    border: '#1f5b69',
     rgb: '6, 182, 212',
   }),
   createThemePreset({
@@ -105,8 +116,6 @@ export const THEME_PRESETS = [
     primary: '#4f46e5',
     hover: '#4338ca',
     secondary: '#818cf8',
-    light: '#181b3a',
-    border: '#343b7f',
     rgb: '79, 70, 229',
   }),
   createThemePreset({
@@ -117,8 +126,6 @@ export const THEME_PRESETS = [
     primary: '#84cc16',
     hover: '#65a30d',
     secondary: '#a3e635',
-    light: '#223110',
-    border: '#4a6d1f',
     rgb: '132, 204, 22',
   }),
   createThemePreset({
@@ -129,8 +136,6 @@ export const THEME_PRESETS = [
     primary: '#e11d8d',
     hover: '#be185d',
     secondary: '#f472b6',
-    light: '#331528',
-    border: '#6d2b55',
     rgb: '225, 29, 141',
   }),
   createThemePreset({
@@ -141,8 +146,6 @@ export const THEME_PRESETS = [
     primary: '#6366f1',
     hover: '#4f46e5',
     secondary: '#a5b4fc',
-    light: '#171a36',
-    border: '#333a74',
     rgb: '99, 102, 241',
   }),
   createThemePreset({
@@ -153,8 +156,6 @@ export const THEME_PRESETS = [
     primary: '#14b8a6',
     hover: '#0d9488',
     secondary: '#5eead4',
-    light: '#102b28',
-    border: '#25635e',
     rgb: '20, 184, 166',
   }),
 ];
@@ -196,7 +197,7 @@ export function applyTheme(themeId) {
 }
 
 /* ── Mode Support (Light/Dark) ──────────────── */
-export const MODE_STORAGE_KEY = 'core_ui_mode';
+export const MODE_STORAGE_KEY = STORAGE_KEYS.uiMode;
 
 export function getActiveMode() {
   try {

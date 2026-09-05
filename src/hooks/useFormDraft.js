@@ -15,8 +15,18 @@ export function useFormDraft(pageId, defaultState, setFormState) {
   const isLoadedRef = useRef(false);
   const isRestoringRef = useRef(false);
 
+  // Callers pass `setFormState` as an inline arrow, so its identity changes on
+  // every render. Keeping the latest one in a ref lets the load effect depend
+  // only on `pageId` — declaring the callback directly would refetch the draft
+  // on every keystroke.
+  const setFormStateRef = useRef(setFormState);
+  useEffect(() => {
+    setFormStateRef.current = setFormState;
+  });
+
   // Load draft (LocalStorage first for speed, then Backend for sync)
   useEffect(() => {
+    const applyState = (value) => setFormStateRef.current?.(value);
     const fetchDraft = async () => {
       try {
         isRestoringRef.current = true;
@@ -25,14 +35,14 @@ export function useFormDraft(pageId, defaultState, setFormState) {
         const local = localStorage.getItem(`draft_${pageId}`);
         if (local) {
           const parsed = JSON.parse(local);
-          setFormState(parsed);
+          applyState(parsed);
           console.log(`[Draft] Recovered from LocalStorage: ${pageId}`);
         }
 
         // 2. Sync from Backend to ensure cross-device consistency
         const res = await api.get(`/drafts/${pageId}`);
         if (res.data.success && res.data.data) {
-          setFormState(res.data.data);
+          applyState(res.data.data);
           console.log(`[Draft] Synced from Backend: ${pageId}`);
         }
       } catch (err) {

@@ -2,10 +2,11 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.jsx'
 import { initTheme } from './lib/theme'
+import { STORAGE_KEYS, migrateLegacyKeys } from './lib/storageKeys'
 
 // ── Cache Buster: Force-clears stale Service Workers & caches on version change ──
 // Bump this version whenever you deploy a critical update
-const APP_CACHE_VERSION = 'v4';
+const APP_CACHE_VERSION = 'v5';
 
 // Auto-purge interval: force re-check caches every 24 hours even if version matches
 const CACHE_MAX_AGE_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -39,8 +40,12 @@ async function purgeAllCaches() {
 }
 
 (async function cacheBuster() {
-  const storedVersion = localStorage.getItem('core_gym_cache_version');
-  const lastPurge = parseInt(localStorage.getItem('core_gym_last_purge') || '0', 10);
+  // Rebrand: carry core_gym_* / core_ui_* values over to batgos_* before
+  // anything reads them, so existing users keep their session and theme.
+  migrateLegacyKeys();
+
+  const storedVersion = localStorage.getItem(STORAGE_KEYS.cacheVersion);
+  const lastPurge = parseInt(localStorage.getItem(STORAGE_KEYS.lastPurge) || '0', 10);
   const now = Date.now();
   const isStaleAge = (now - lastPurge) > CACHE_MAX_AGE_MS;
 
@@ -54,8 +59,8 @@ async function purgeAllCaches() {
     await purgeAllCaches();
 
     // Mark version + timestamp as current
-    localStorage.setItem('core_gym_cache_version', APP_CACHE_VERSION);
-    localStorage.setItem('core_gym_last_purge', String(now));
+    localStorage.setItem(STORAGE_KEYS.cacheVersion, APP_CACHE_VERSION);
+    localStorage.setItem(STORAGE_KEYS.lastPurge, String(now));
 
     // Force a hard reload if this is a stale-to-fresh transition (not first visit)
     if (storedVersion !== null && storedVersion !== APP_CACHE_VERSION) {
@@ -67,8 +72,9 @@ async function purgeAllCaches() {
   }
 
   // ── Normal app boot ──
-  localStorage.removeItem('core_ui_mode');
-  localStorage.removeItem('core_ui_theme');
+  // NOTE: this used to removeItem() the theme and mode keys right here, one
+  // line before initTheme() read them — silently resetting the accent preset
+  // and light/dark choice on every single page load.
   initTheme()
 
   createRoot(document.getElementById('root')).render(

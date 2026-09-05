@@ -1,196 +1,252 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Trash2 } from 'lucide-react';
-import { formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
+import { Plus, Trash2, Receipt, ChevronDown, ChevronRight, Wallet, BarChart3, Repeat } from 'lucide-react';
+import { formatDate, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
-import { MemberSkeleton, StateView } from '../../components/common/StateView';
-import { ModernLoader } from '../../components/common/ModernLoader';
 import api from '../../lib/api';
 import { useConfirm } from '../../contexts/ConfirmContext';
-import '../../styles/members.css';
-import '../../styles/loading.css';
+import { useToast } from '../../contexts/ToastContext';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, Button, Card, Select,
+  EmptyState, ListSkeleton,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
 
 export default function ExpensesListPage() {
+  const money = useMoney();
   const navigate = useNavigate();
+  const confirm = useConfirm();
+  const toast = useToast();
+
   const [showStaffDetails, setShowStaffDetails] = useState(false);
   const [month, setMonth] = useState(getCurrentMonth());
   const [category, setCategory] = useState('');
   const year = getCurrentYear();
-  const confirm = useConfirm();
-  const [expenseData, setExpenseData] = useState([]);
-  const [isLoading, setIsLoading] = useState(true);
+
+  const [expenseData, setExpenseData] = useState(null);
   const [deletingIds, setDeletingIds] = useState([]);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchExpenses = async () => {
-      if (isMounted) setIsLoading(true);
+    (async () => {
+      setExpenseData(null);
       try {
         const res = await api.get('/expenses', { params: { month, year, category } });
-        if (isMounted) {
-          setExpenseData(res.data.data || []);
-        }
+        if (isMounted) setExpenseData(res.data.data || []);
       } catch (err) {
         console.error('Expenses api error:', err);
         if (isMounted) setExpenseData([]);
-      } finally {
-        if (isMounted) setIsLoading(false);
       }
+    })();
+    return () => {
+      isMounted = false;
     };
-    
-    fetchExpenses();
-    return () => { isMounted = false; };
   }, [month, year, category]);
 
-  const handleDelete = async (e, id) => {
-    e.stopPropagation();
+  const { staffSalaries, otherExpenses, staffTotal, total } = useMemo(() => {
+    const all = expenseData ?? [];
+    const salaries = all.filter((e) => e.is_staff_salary);
+    return {
+      staffSalaries: salaries,
+      otherExpenses: all.filter((e) => !e.is_staff_salary),
+      staffTotal: salaries.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+      total: all.reduce((s, e) => s + (Number(e.amount) || 0), 0),
+    };
+  }, [expenseData]);
+
+  const handleDelete = async (id) => {
     const confirmed = await confirm({
-      title: 'Delete Expense',
-      message: 'Are you sure you want to delete this expense? This action cannot be undone.',
+      title: 'Delete expense?',
+      message: 'This expense will be permanently removed from your records.',
       confirmText: 'Delete',
-      type: 'danger'
     });
     if (!confirmed) return;
-    // Start animation
-    setDeletingIds(prev => [...prev, id]);
-    await new Promise(r => setTimeout(r, 400));
-    
+
+    setDeletingIds((prev) => [...prev, id]);
+    await new Promise((r) => setTimeout(r, 300));
+
     try {
       await api.delete(`/expenses/${id}`);
-      setExpenseData(prev => prev ? prev.filter(e => e.id !== id) : prev);
+      setExpenseData((prev) => prev?.filter((e) => e.id !== id) ?? prev);
     } catch (err) {
       console.error('Failed to delete expense:', err);
-      alert('Failed to delete expense');
-      setDeletingIds(prev => prev.filter(delId => delId !== id)); // revert animation if failed
+      // Was a raw window.alert(), which cannot be styled and blocks the page.
+      toast.error(err.response?.data?.message || 'Could not delete this expense.');
+      setDeletingIds((prev) => prev.filter((x) => x !== id));
     }
   };
 
-  const loading = isLoading;
-  const allExpenses = expenseData || [];
+  const catIcon = (cat) => EXPENSE_CATEGORIES.find((c) => c.value === cat)?.icon || '📦';
+  const catLabel = (exp) =>
+    exp.custom_category || EXPENSE_CATEGORIES.find((c) => c.value === exp.category)?.label || 'Expense';
 
-  const staffSalaries = allExpenses.filter(e => e.is_staff_salary);
-  const otherExpenses = allExpenses.filter(e => !e.is_staff_salary);
-  const staffTotal = staffSalaries.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const total = allExpenses.reduce((s, e) => s + (Number(e.amount) || 0), 0);
-  const getCatIcon = (cat) => EXPENSE_CATEGORIES.find(c => c.value === cat)?.icon || '📦';
+  const loading = expenseData === null;
 
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 'var(--space-lg)' }}>
-        <div><h1 className="page-title">Expenses</h1><p className="page-subtitle">{getMonthName(month)} {year}</p></div>
-        <button className="btn btn-primary btn-sm" onClick={() => navigate('/expenses/add')}><Plus size={16} /> Add</button>
+    <Page>
+      <PageHeader
+        title="Expenses"
+        subtitle={`${getMonthName(month)} ${year}`}
+        actions={
+          <>
+            <Button variant="secondary" onClick={() => navigate('/expenses/summary')}>
+              <BarChart3 className="size-4" aria-hidden="true" />
+              <span className="hidden sm:inline">Profit / loss</span>
+            </Button>
+            <Button onClick={() => navigate('/expenses/add')}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add
+            </Button>
+          </>
+        }
+      />
+
+      <div className="grid grid-cols-2 gap-2 mb-4">
+        <Select aria-label="Month" value={month} onChange={(e) => setMonth(Number(e.target.value))}>
+          {Array.from({ length: 12 }, (_, i) => (
+            <option key={i + 1} value={i + 1}>
+              {getMonthName(i + 1)}
+            </option>
+          ))}
+        </Select>
+        <Select aria-label="Category" value={category} onChange={(e) => setCategory(e.target.value)}>
+          <option value="">All categories</option>
+          {EXPENSE_CATEGORIES.map((c) => (
+            <option key={c.value} value={c.value}>
+              {c.label}
+            </option>
+          ))}
+        </Select>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-        <select className="form-select" value={month} onChange={e => setMonth(Number(e.target.value))}>
-          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
-        </select>
-        <select className="form-select" value={category} onChange={e => setCategory(e.target.value)}>
-          <option value="">All Categories</option>
-          {EXPENSE_CATEGORIES.map(c => <option key={c.value} value={c.value}>{c.label}</option>)}
-        </select>
-      </div>
+      <Card className="mb-4 text-center">
+        <p className="text-xs font-semibold uppercase tracking-wide text-muted">Total expenses</p>
+        <p className="text-3xl font-bold text-danger font-display tabular-nums mt-1">
+          {loading ? '—' : money(total)}
+        </p>
+      </Card>
 
-      <div className="card" style={{ textAlign: 'center', marginBottom: 'var(--space-md)' }}>
-        <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Total Expenses</div>
-        <div style={{ fontSize: 'var(--font-2xl)', fontWeight: 800, color: 'var(--status-danger)' }}>{formatPKR(total)}</div>
-      </div>
-
-      <div className="expenses-content">
-        {loading ? (
-          <div style={{ padding: '60px 0', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}>
-            <ModernLoader type="morph" text="Syncing Expenses..." />
-          </div>
-        ) : allExpenses.length === 0 ? (
-          <StateView 
-            type="empty" 
-            title="No expenses found" 
-            description={category ? "Try changing your category filter." : "No expenses recorded for this month."}
-          />
-        ) : (
-          <div className="expense-list">
-            {/* Staff Salary Group Card */}
-            {staffSalaries.length > 0 && (
-              <div style={{ marginBottom: 'var(--space-sm)' }}>
-                <div className="card" 
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: 'var(--space-md)', 
-                    borderLeft: '4px solid var(--status-active)', cursor: 'pointer',
-                    background: showStaffDetails ? 'var(--bg-secondary)' : 'var(--bg-glass)'
-                  }}
-                  onClick={() => setShowStaffDetails(!showStaffDetails)}
-                >
-                  <div style={{ fontSize: 24, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'rgba(0,168,107,0.1)', borderRadius: '50%', color: 'var(--status-active)' }}>💰</div>
-                  <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 700, color: 'var(--status-active)' }}>Staff Salaries</div>
-                    <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>
-                      {staffSalaries.length} staff members paid • {showStaffDetails ? 'Click to hide' : 'Click to view names'}
-                    </div>
-                  </div>
-                  <div style={{ fontWeight: 800, color: 'var(--status-danger)' }}>{formatPKR(staffTotal)}</div>
-                </div>
-
-                {/* Individual Staff Salaries (Visible when expanded) */}
-                {showStaffDetails && (
-                  <div style={{ marginLeft: 'var(--space-md)', paddingLeft: 'var(--space-sm)', borderLeft: '2px dashed var(--border-color)', marginTop: 'var(--space-xs)' }}>
-                    {staffSalaries.map(sp => (
-                      <div key={sp.id} className="card" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: '4px', padding: '10px 15px', background: 'var(--bg-primary)' }}>
-                        <div style={{ flex: 1 }}>
-                          <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>
-                            {sp.description.includes(': ') ? sp.description.split(': ')[1] : sp.description}
-                          </div>
-                          <div style={{ fontSize: '10px', color: 'var(--text-muted)' }}>Paid on: {formatDate(sp.expense_date)}</div>
-                        </div>
-                        <div style={{ fontWeight: 700, fontSize: 'var(--font-sm)', color: 'var(--status-danger)' }}>{formatPKR(sp.amount)}</div>
-                      </div>
-                    ))}
-                  </div>
+      {loading ? (
+        <ListSkeleton rows={5} />
+      ) : (expenseData?.length ?? 0) === 0 ? (
+        <EmptyState
+          icon={Receipt}
+          title="No expenses recorded"
+          description={category ? 'Try a different category.' : `Nothing logged for ${getMonthName(month)} yet.`}
+          action={
+            <Button onClick={() => navigate('/expenses/add')}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add expense
+            </Button>
+          }
+        />
+      ) : (
+        <div className="flex flex-col gap-2">
+          {/* Staff salaries roll up into one expandable row */}
+          {staffSalaries.length > 0 && (
+            <div>
+              <button
+                type="button"
+                onClick={() => setShowStaffDetails((v) => !v)}
+                aria-expanded={showStaffDetails}
+                className="flex items-center gap-3 w-full p-4 text-left bg-surface-2 border border-line border-l-4 border-l-success rounded-xl transition-colors hover:border-line-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                <span className="flex items-center justify-center size-11 rounded-xl bg-success-soft text-success shrink-0">
+                  <Wallet className="size-5" aria-hidden="true" />
+                </span>
+                <span className="grow min-w-0">
+                  <span className="block font-semibold text-heading">Staff salaries</span>
+                  <span className="block text-xs text-muted">
+                    {staffSalaries.length} paid this month
+                  </span>
+                </span>
+                <span className="font-bold text-danger tabular-nums shrink-0">{money(staffTotal)}</span>
+                {showStaffDetails ? (
+                  <ChevronDown className="size-4 text-muted shrink-0" aria-hidden="true" />
+                ) : (
+                  <ChevronRight className="size-4 text-muted shrink-0" aria-hidden="true" />
                 )}
-              </div>
-            )}
+              </button>
 
-            {/* Regular Expenses */}
-            {otherExpenses.map(exp => {
-              const isDeleting = deletingIds.includes(exp.id);
-              return (
-                <div key={exp.id} className="card" 
-                  style={{ 
-                    display: 'flex', alignItems: 'center', gap: 'var(--space-md)', marginBottom: 'var(--space-sm)', cursor: 'pointer',
-                    transform: isDeleting ? 'translateX(100px)' : 'none',
-                    opacity: isDeleting ? 0 : 1,
-                    transition: 'all 0.4s cubic-bezier(0.4, 0, 0.2, 1)',
-                    pointerEvents: isDeleting ? 'none' : 'auto'
-                  }}
-                  onClick={() => navigate(`/expenses/${exp.id}/edit`)}>
-                <div style={{ fontSize: 28, width: 44, height: 44, display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--bg-glass)', borderRadius: 'var(--radius-md)', flexShrink: 0 }}>
-                  {getCatIcon(exp.category)}
-                </div>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600 }}>{exp.custom_category || EXPENSE_CATEGORIES.find(c => c.value === exp.category)?.label}</div>
-                  <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{exp.description}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>
-                    {formatDate(exp.expense_date)}{exp.is_recurring ? ' • 🔄 Recurring' : ''}
-                  </div>
-                </div>
-                <div style={{ fontWeight: 700, color: 'var(--status-danger)', whiteSpace: 'nowrap' }}>{formatPKR(exp.amount)}</div>
-                <button 
-                  className="btn btn-icon" 
-                  style={{ color: 'var(--status-danger)', background: 'rgba(255,118,117,0.1)' }}
-                  onClick={(e) => handleDelete(e, exp.id)}
-                  title="Delete Expense"
+              {showStaffDetails && (
+                <ul className="ml-5 mt-1 pl-3 border-l-2 border-dashed border-line flex flex-col gap-1">
+                  {staffSalaries.map((sp) => (
+                    <li
+                      key={sp.id}
+                      className="flex items-center gap-3 py-2 px-3 rounded-lg bg-surface-3/60"
+                    >
+                      <span className="grow min-w-0">
+                        <span className="block text-sm font-medium text-heading truncate">
+                          {sp.description?.includes(': ') ? sp.description.split(': ')[1] : sp.description}
+                        </span>
+                        <span className="block text-xs text-muted">Paid {formatDate(sp.expense_date)}</span>
+                      </span>
+                      <span className="text-sm font-semibold text-danger tabular-nums shrink-0">
+                        {money(sp.amount)}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+
+          {otherExpenses.map((exp) => {
+            const isDeleting = deletingIds.includes(exp.id);
+            return (
+              <div
+                key={exp.id}
+                className={cn(
+                  'flex items-center gap-3 p-3 sm:p-4 bg-surface-2 border border-line rounded-xl',
+                  'transition-all duration-300 hover:border-line-hover',
+                  isDeleting && 'translate-x-24 opacity-0 pointer-events-none'
+                )}
+              >
+                <button
+                  type="button"
+                  onClick={() => navigate(`/expenses/${exp.id}/edit`)}
+                  className="flex items-center gap-3 grow min-w-0 text-left rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 >
-                  <Trash2 size={18} />
+                  <span
+                    className="flex items-center justify-center size-11 rounded-xl bg-surface-3 text-2xl shrink-0"
+                    aria-hidden="true"
+                  >
+                    {catIcon(exp.category)}
+                  </span>
+                  <span className="grow min-w-0">
+                    <span className="block font-semibold text-heading truncate">{catLabel(exp)}</span>
+                    {exp.description && (
+                      <span className="block text-xs text-muted truncate">{exp.description}</span>
+                    )}
+                    <span className="flex items-center gap-1.5 text-[0.6875rem] text-muted mt-0.5">
+                      {formatDate(exp.expense_date)}
+                      {exp.is_recurring && (
+                        <>
+                          <Repeat className="size-3" aria-hidden="true" />
+                          Recurring
+                        </>
+                      )}
+                    </span>
+                  </span>
                 </button>
-              </div>
-              );
-            })}
-          </div>
-        )}
-      </div>
 
-      <div style={{ marginTop: 'var(--space-lg)', textAlign: 'center' }}>
-        <button className="btn btn-secondary" onClick={() => navigate('/expenses/summary')}>📊 Profit/Loss Summary</button>
-      </div>
-    </div>
+                <span className="font-bold text-danger tabular-nums shrink-0">{money(exp.amount)}</span>
+
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted hover:text-danger hover:bg-danger-soft shrink-0"
+                  onClick={() => handleDelete(exp.id)}
+                  aria-label={`Delete ${catLabel(exp)} expense`}
+                >
+                  <Trash2 className="size-4" aria-hidden="true" />
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </Page>
   );
 }

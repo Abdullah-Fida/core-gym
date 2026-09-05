@@ -1,67 +1,87 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import api from '../../lib/api';
 import { identifyFingerprint } from '../../lib/biometrics';
-import { daysFromNow, formatPKR, getInitials, formatDate } from '../../lib/utils';
+import { daysFromNow, calculateMemberStatus } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
-import { ModernLoader } from '../../components/common/ModernLoader';
-import { 
-  Fingerprint, 
-  History, 
-  CheckCircle2, 
-  XCircle, 
-  Loader2, 
-  ShieldAlert, 
-  Search, 
-  Clock, 
-  UserCheck 
+import {
+  Fingerprint, CheckCircle2, XCircle, Loader2, Search, Clock,
+  UserCheck, ShieldAlert, CalendarCheck,
 } from 'lucide-react';
-import '../../styles/members.css';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, Card, CardHeader, Button, Input, Tabs,
+  Avatar, Badge, MemberStatusBadge, EmptyState, ListSkeleton,
+} from '../../components/ui';
+
+const TABS = [
+  { key: 'gate', label: 'Live gate' },
+  { key: 'history', label: "Today's entries" },
+];
+
+const ACCESS_RULES = [
+  { tone: 'bg-success', text: 'Active members are logged automatically.' },
+  { tone: 'bg-danger', text: 'Expired members are blocked at the gate.' },
+  { tone: 'bg-accent', text: 'A local fingerprint sensor is required.' },
+];
+
+const isSecureContextForBiometrics = () =>
+  window.location.protocol === 'https:' || window.location.hostname === 'localhost';
 
 export default function AttendancePage() {
   const toast = useToast();
-  const [activeTab, setActiveTab] = useState('gate'); // 'gate', 'history'
+  const navigate = useNavigate();
+
+  const [activeTab, setActiveTab] = useState('gate');
   const [scanning, setScanning] = useState(false);
   const [scanResult, setScanResult] = useState(null);
-  const [history, setHistory] = useState([]);
+  const [history, setHistory] = useState(null);
   const [searchResults, setSearchResults] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
-  const [loadingHistory, setLoadingHistory] = useState(true);
 
-  // Load today's history from API
-  const fetchHistory = async () => {
-    setLoadingHistory(true);
+  const fetchHistory = useCallback(async () => {
+    setHistory(null);
     try {
-      const res = await api.get('/attendance', { params: { date: new Date().toISOString().split('T')[0] } });
+      const res = await api.get('/attendance', {
+        params: { date: new Date().toISOString().split('T')[0] },
+      });
       setHistory(res.data.data || []);
-    } catch (err) { console.error(err); } finally { setLoadingHistory(false); }
-  };
-
-  // Global search for members when typing
-  useEffect(() => {
-    const performSearch = async () => {
-      if (!searchTerm || searchTerm.length < 2) {
-        setSearchResults([]);
-        return;
-      }
-      try {
-        const res = await api.get('/members');
-        const allMembers = res.data.data || [];
-        const results = allMembers.filter(m => 
-          m.status !== 'deleted' &&
-          (m.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
-          m.phone.includes(searchTerm))
-        ).slice(0, 10);
-        setSearchResults(results);
-      } catch (err) {
-        console.error('Member search failed', err);
-      }
-    };
-    performSearch();
-  }, [searchTerm]);
+    } catch (err) {
+      console.error(err);
+      setHistory([]);
+    }
+  }, []);
 
   useEffect(() => {
     if (activeTab === 'history') fetchHistory();
-  }, [activeTab]);
+  }, [activeTab, fetchHistory]);
+
+  useEffect(() => {
+    if (searchTerm.trim().length < 2) {
+      setSearchResults([]);
+      return undefined;
+    }
+    let alive = true;
+    const timer = setTimeout(async () => {
+      try {
+        const res = await api.get('/members', { params: { search: searchTerm } });
+        if (!alive) return;
+        setSearchResults(
+          (res.data.data || [])
+            .filter((m) => m.status !== 'deleted')
+            .map((m) => ({ ...m, status: calculateMemberStatus(m) }))
+            .slice(0, 10)
+        );
+      } catch (err) {
+        console.error('Member search failed', err);
+      }
+    }, 250); // debounced — this previously refetched every member on each keystroke
+
+    return () => {
+      alive = false;
+      clearTimeout(timer);
+    };
+  }, [searchTerm]);
 
   const handleScan = async () => {
     setScanning(true);
@@ -70,252 +90,241 @@ export default function AttendancePage() {
       const member = await identifyFingerprint();
       const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
       const isExpired = member.status === 'expired' || (days !== null && days < 0);
-      
+
       if (isExpired) {
-        setScanResult({ member, allowed: false, message: `Access Denied! Fee overdue by ${Math.abs(days)} days.` });
-        toast.error('Membership Expired!');
+        setScanResult({
+          member,
+          allowed: false,
+          message: days === null ? 'Access denied — no active membership.' : `Access denied — fee overdue by ${Math.abs(days)} days.`,
+        });
+        toast.error('Membership expired.');
       } else {
-        const record = { id: crypto.randomUUID(), member_id: member.id, timestamp: new Date().toISOString(), status: 'present' };
-        await api.post('/attendance', record);
-        setScanResult({ member, allowed: true, message: `Welcome, ${member.name}! Access Granted.` });
-        toast.success(`Welcome back, ${member.name.split(' ')[0]}!`);
+        await api.post('/attendance/mark', {
+          member_id: member.id,
+          check_in_time: new Date().toISOString(),
+        });
+        setScanResult({ member, allowed: true, message: 'Access granted.' });
+        toast.success(`Welcome back, ${member.name.split(' ')[0]}.`);
       }
     } catch (err) {
-      if (err.name !== 'NotAllowedError' && err.name !== 'AbortError') toast.error(err.message || 'Identification failed');
-    } finally { setScanning(false); }
+      if (err.name !== 'NotAllowedError' && err.name !== 'AbortError') {
+        toast.error(err.message || 'Identification failed.');
+      }
+    } finally {
+      setScanning(false);
+    }
+  };
+
+  const handleManualMark = async (memberId, name) => {
+    try {
+      await api.post('/attendance/mark', {
+        member_id: memberId,
+        check_in_time: new Date().toISOString(),
+      });
+      toast.success(`${name} checked in.`);
+      setSearchTerm('');
+      fetchHistory();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not mark attendance.');
+    }
   };
 
   const formatTime = (ts) => {
-    try {
-      const d = new Date(ts);
-      if (isNaN(d.getTime())) return '--:--';
-      return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'});
-    } catch (e) { return '--:--'; }
-  };
-
-  const handleManualMark = async (memberId) => {
-    try {
-      const record = { id: crypto.randomUUID(), member_id: memberId, timestamp: new Date().toISOString(), status: 'present' };
-      await api.post('/attendance', record);
-      toast.success('Attendance marked');
-      setSearchTerm('');
-      fetchHistory();
-    } catch (err) { toast.error('Failed to mark attendance'); }
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? '--:--' : d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
   };
 
   return (
-    <div className="page-container">
-      <div className="page-header" style={{marginBottom: '24px'}}>
-         <h1 className="page-title">Attendance <span>Hub</span></h1>
-         <p className="page-subtitle">Central gateway for biometric access and logs</p>
-      </div>
+    <Page>
+      <PageHeader title="Attendance" subtitle="Biometric gate and daily check-in log" />
 
-      {/* Professional Tab Switcher */}
-      <div className="filter-tabs" style={{marginBottom: '32px'}}>
-         <button 
-           className={`filter-tab ${activeTab === 'gate' ? 'active' : ''}`} 
-           onClick={() => setActiveTab('gate')}
-         >
-           <Fingerprint size={16} style={{marginRight: 8}}/> Live Gate Scanner
-         </button>
-         <button 
-           className={`filter-tab ${activeTab === 'history' ? 'active' : ''}`} 
-           onClick={() => setActiveTab('history')}
-         >
-           <History size={16} style={{marginRight: 8}}/> Entry History Logs
-         </button>
-      </div>
+      <Tabs items={TABS} value={activeTab} onChange={setActiveTab} className="mb-5" />
 
       {activeTab === 'gate' ? (
-        <div className="gate-tab-content animate-in">
-           <div className="grid-2" style={{alignItems: 'start'}}>
-              
-              {/* Left Column: The Scanner */}
-              <div className="card" style={{padding: '40px', textAlign: 'center'}}>
-                 <div style={{
-                    width: '120px', height: '120px', margin: '0 auto 32px', borderRadius: '50%',
-                    background: scanResult ? (scanResult.allowed ? 'var(--status-active-bg)' : 'var(--status-danger-bg)') : 'var(--bg-tertiary)',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center',
-                    color: scanResult ? (scanResult.allowed ? 'var(--status-active)' : 'var(--status-danger)') : (scanning ? 'var(--accent-primary)' : 'var(--text-muted)'),
-                    transition: 'all 0.3s ease',
-                    boxShadow: scanning ? '0 0 40px rgba(56, 189, 248, 0.4)' : 'none'
-                 }}>
-                    {scanning ? (
-                      <Loader2 size={48} className="spin" />
-                    ) : scanResult ? (
-                      scanResult.allowed ? <CheckCircle2 size={64} /> : <XCircle size={64} />
-                    ) : (
-                      <Fingerprint size={64} />
-                    )}
-                 </div>
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+          <Card padding="lg" className="text-center">
+            <div
+              className={cn(
+                'flex items-center justify-center size-28 mx-auto mb-8 rounded-full transition-all duration-300',
+                scanResult
+                  ? scanResult.allowed
+                    ? 'bg-success-soft text-success'
+                    : 'bg-danger-soft text-danger'
+                  : scanning
+                    ? 'bg-accent-soft text-accent shadow-accent'
+                    : 'bg-surface-3 text-muted'
+              )}
+            >
+              {scanning ? (
+                <Loader2 className="size-12 animate-spin" aria-hidden="true" />
+              ) : scanResult ? (
+                scanResult.allowed ? (
+                  <CheckCircle2 className="size-14" aria-hidden="true" />
+                ) : (
+                  <XCircle className="size-14" aria-hidden="true" />
+                )
+              ) : (
+                <Fingerprint className="size-14" aria-hidden="true" />
+              )}
+            </div>
 
-                 {scanResult ? (
-                    <div>
-                       <div style={{
-                          width: '80px', height: '80px', borderRadius: '50%', background: 'var(--bg-secondary)', 
-                          margin: '0 auto 16px', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: '24px', fontWeight: '800', border: '2px solid var(--border-color)'
-                       }}>
-                          {getInitials(scanResult.member.name)}
-                       </div>
-                       <h2 style={{fontSize: '24px', fontWeight: '900'}}>{scanResult.member.name}</h2>
-                       <p style={{
-                          fontSize: '16px', fontWeight: '700', marginTop: '4px',
-                          color: scanResult.allowed ? 'var(--status-active)' : 'var(--status-danger)',
-                          marginBottom: '24px'
-                       }}>
-                         {scanResult.message}
-                       </p>
-                       <button className="btn btn-secondary btn-block" onClick={() => setScanResult(null)}>Scan Next Member</button>
-                    </div>
-                 ) : (
-                    <div>
-                       <h3 style={{fontWeight: '800', marginBottom: '8px'}}>Ready to Identify</h3>
-                       <p style={{color: 'var(--text-muted)', fontSize: '14px', marginBottom: '32px'}}>Ask the member to press the scanner</p>
-                       <button className="btn btn-primary btn-lg btn-block" disabled={scanning} onClick={handleScan}>
-                          {scanning ? 'Verifying Identity...' : 'Identify Fingerprint'}
-                       </button>
-                    </div>
-                 )}
+            <div role="status" aria-live="polite">
+              {scanResult ? (
+                <>
+                  <Avatar
+                    name={scanResult.member.name}
+                    size="lg"
+                    tone={scanResult.allowed ? 'success' : 'danger'}
+                    className="mx-auto mb-4"
+                  />
+                  <h2 className="text-xl font-bold text-heading font-display">{scanResult.member.name}</h2>
+                  <p className={cn('font-semibold mt-1.5 mb-6', scanResult.allowed ? 'text-success' : 'text-danger')}>
+                    {scanResult.message}
+                  </p>
+                  <Button variant="secondary" block onClick={() => setScanResult(null)}>
+                    Scan next member
+                  </Button>
+                </>
+              ) : (
+                <>
+                  <h2 className="text-lg font-bold text-heading">Ready to identify</h2>
+                  <p className="text-sm text-muted mt-1.5 mb-8">Ask the member to press the scanner.</p>
+                  <Button size="lg" block loading={scanning} onClick={handleScan}>
+                    Identify fingerprint
+                  </Button>
+                </>
+              )}
+            </div>
 
-                 {/* Browser Support Warning */}
-                 {window.location.protocol !== 'https:' && window.location.hostname !== 'localhost' && (
-                    <div style={{marginTop: '20px', padding: '12px', background: 'var(--status-danger-bg)', borderRadius: '8px', color: 'var(--status-danger)', fontSize: '11px'}}>
-                       ⚠️ Biometrics disabled: Browsers require <b>HTTPS</b> or <b>localhost</b> for fingerprint security. 
-                       Currently using an insecure connection.
-                    </div>
-                 )}
+            {!isSecureContextForBiometrics() && (
+              <p className="flex items-start gap-2 mt-5 p-3 rounded-lg bg-danger-soft text-danger text-xs text-left">
+                <ShieldAlert className="size-4 shrink-0 mt-px" aria-hidden="true" />
+                <span>
+                  Biometrics are disabled. Browsers require <strong>HTTPS</strong> or{' '}
+                  <strong>localhost</strong> for fingerprint access — this connection is insecure.
+                </span>
+              </p>
+            )}
+          </Card>
+
+          <div className="flex flex-col gap-4">
+            <Card>
+              <CardHeader
+                title="Manual check-in"
+                subtitle="Use this when the scanner is unavailable"
+              />
+              <div className="relative">
+                <Search
+                  className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted"
+                  aria-hidden="true"
+                />
+                <Input
+                  type="search"
+                  className="pl-9"
+                  placeholder="Member name or phone…"
+                  aria-label="Search members to check in"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
               </div>
 
-              {/* Right Column: Information & Manual Entry */}
-              <div style={{display: 'flex', flexDirection: 'column', gap: '16px'}}>
-                 
-                 {/* Manual Entry Fallback */}
-                 <div className="card" style={{padding: '24px', border: '1px solid var(--accent-primary)'}}>
-                    <h3 style={{fontSize: '15px', fontWeight: '800', marginBottom: '12px'}}>Manual Entry</h3>
-                    <p style={{fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px'}}>If the scanner is unavailable, search for a member to mark attendance manually.</p>
-                    <div className="search-bar" style={{background: 'var(--bg-secondary)'}}>
-                       <Search size={16} />
-                       <input 
-                         placeholder="Member Name or Phone..." 
-                         onChange={(e) => {
-                            const val = e.target.value;
-                            if (val.length > 2) {
-                               setSearchTerm(val);
-                               setActiveTab('history'); // Jump to history to see and mark
-                            }
-                         }}
-                       />
-                    </div>
-                 </div>
+              {searchTerm.trim().length >= 2 && (
+                <ul className="flex flex-col gap-2 mt-3">
+                  {searchResults.length === 0 ? (
+                    <li className="text-sm text-muted text-center py-4">
+                      No members matching “{searchTerm}”.
+                    </li>
+                  ) : (
+                    searchResults.map((m) => (
+                      <li
+                        key={m.id}
+                        className="flex items-center gap-3 p-2.5 rounded-lg bg-surface-3"
+                      >
+                        <Avatar name={m.name} size="sm" />
+                        <span className="grow min-w-0">
+                          <span className="block text-sm font-semibold text-heading truncate">{m.name}</span>
+                          <span className="block text-xs text-muted truncate">{m.phone || 'No phone'}</span>
+                        </span>
+                        <MemberStatusBadge status={m.status} />
+                        <Button size="sm" onClick={() => handleManualMark(m.id, m.name)}>
+                          Check in
+                        </Button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+              )}
+            </Card>
 
-                 <div className="card" style={{padding: '24px'}}>
-                    <h3 style={{fontSize: '15px', fontWeight: '800', marginBottom: '16px', display: 'flex', alignItems: 'center', gap: 8}}>
-                       <UserCheck size={18} style={{color: 'var(--accent-primary)'}}/> Access rules
-                    </h3>
-                    <ul style={{padding: 0, margin: 0, listStyle: 'none', display: 'flex', flexDirection: 'column', gap: '12px'}}>
-                       <li style={{fontSize: '13px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)'}}>
-                          <div style={{width: 6, height: 6, borderRadius: '50%', background: 'var(--status-active)'}}></div>
-                          Active members get auto-logged.
-                       </li>
-                       <li style={{fontSize: '13px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)'}}>
-                          <div style={{width: 6, height: 6, borderRadius: '50%', background: 'var(--status-danger)'}}></div>
-                          Expired members are blocked at gate.
-                       </li>
-                       <li style={{fontSize: '13px', display: 'flex', alignItems: 'center', gap: 8, color: 'var(--text-secondary)'}}>
-                          <div style={{width: 6, height: 6, borderRadius: '50%', background: 'var(--accent-primary)'}}></div>
-                          Local fingerprint sensor required.
-                       </li>
-                    </ul>
-                 </div>
+            <Card>
+              <CardHeader title="Access rules" />
+              <ul className="flex flex-col gap-2.5">
+                {ACCESS_RULES.map((rule) => (
+                  <li key={rule.text} className="flex items-center gap-2.5 text-sm text-body">
+                    <span className={cn('size-1.5 rounded-full shrink-0', rule.tone)} aria-hidden="true" />
+                    {rule.text}
+                  </li>
+                ))}
+              </ul>
+            </Card>
 
-                 <div className="card" style={{padding: '24px', background: 'var(--bg-secondary)', borderStyle: 'dashed'}}>
-                    <h3 style={{fontSize: '14px', fontWeight: '800', marginBottom: '8px'}}>Member Registration</h3>
-                    <p style={{fontSize: '12px', color: 'var(--text-muted)', marginBottom: '16px'}}>
-                       To register a new fingerprint, visit the specific member's profile page and use the biometric enrollment section.
-                    </p>
-                    <button className="btn btn-secondary btn-sm" onClick={() => (window.location.href = '/members')}>Manage Members</button>
-                 </div>
-              </div>
-           </div>
+            <Card className="border-dashed">
+              <CardHeader
+                title="Fingerprint enrolment"
+                subtitle="Register a new fingerprint from the member's profile page"
+              />
+              <Button variant="secondary" size="sm" onClick={() => navigate('/members')}>
+                <UserCheck className="size-4" aria-hidden="true" />
+                Manage members
+              </Button>
+            </Card>
+          </div>
         </div>
       ) : (
-        <div className="history-tab-content animate-in">
-           <div className="card" style={{padding: '20px'}}>
-              <div className="search-bar" style={{marginBottom: '20px'}}>
-                 <Search size={18} />
-                 <input 
-                   placeholder="Search entries by name or phone..." 
-                   value={searchTerm}
-                   onChange={e => setSearchTerm(e.target.value)}
-                 />
-              </div>
-
-              {loadingHistory && !searchTerm ? (
-                 <div style={{padding: '40px 0'}}>
-                   <ModernLoader type="bar" text="Loading History..." />
-                 </div>
-              ) : searchTerm.length >= 2 ? (
-                 <div className="attendance-list">
-                    <div style={{fontSize: '11px', fontWeight: '800', opacity: 0.5, marginBottom: '16px', textTransform: 'uppercase'}}>Global Directory Results</div>
-                    {searchResults.length === 0 ? (
-                       <div style={{padding: '40px 0', textAlign: 'center', color: 'var(--text-muted)'}}>No members matching "{searchTerm}"</div>
-                    ) : (
-                       searchResults.map(m => (
-                          <div key={m.id} style={{
-                             display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                             padding: '16px', background: 'var(--bg-tertiary)', borderRadius: '12px', marginBottom: '8px'
-                          }}>
-                             <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-                                <div style={{width: '40px', height: '40px', borderRadius: '10px', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700'}}>
-                                   {getInitials(m.name)}
-                                </div>
-                                <div>
-                                   <div style={{fontWeight: '700', fontSize: '15px'}}>{m.name}</div>
-                                   <div style={{fontSize: '11px', color: 'var(--text-muted)'}}>{m.phone || 'No phone'}</div>
-                                </div>
-                             </div>
-                             <div style={{display: 'flex', alignItems: 'center', gap: '12px'}}>
-                                <span className={`status-pill ${m.status || 'active'}`} style={{fontSize: '10px', padding: '2px 8px'}}>{m.status || 'Active'}</span>
-                                <button className="btn btn-primary btn-sm" onClick={() => handleManualMark(m.id)}>Check In</button>
-                             </div>
-                          </div>
-                       ))
-                    )}
-                 </div>
-              ) : history.length === 0 ? (
-                 <div style={{padding: '60px 0', textAlign: 'center', color: 'var(--text-muted)'}}>
-                    No attendance records found for today.
-                 </div>
-              ) : (
-                 <div className="attendance-list">
-                    <div style={{fontSize: '11px', fontWeight: '800', opacity: 0.5, marginBottom: '16px', textTransform: 'uppercase'}}>Today's Check-ins ({history.length})</div>
-                    {history.map(log => (
-                       <div key={log.id} style={{
-                          display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                          padding: '16px', background: 'var(--bg-tertiary)', borderRadius: '12px', marginBottom: '8px'
-                       }}>
-                          <div style={{display: 'flex', alignItems: 'center', gap: '16px'}}>
-                             <div style={{width: '40px', height: '40px', borderRadius: '10px', background: 'var(--bg-secondary)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '700'}}>
-                                {getInitials(log.member?.name)}
-                             </div>
-                             <div>
-                                <div style={{fontWeight: '700', fontSize: '15px'}}>{log.member?.name}</div>
-                                <div style={{fontSize: '11px', color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: 4}}>
-                                   <Clock size={10} /> {formatTime(log.timestamp)}
-                                </div>
-                             </div>
-                          </div>
-                          <div style={{fontSize: '11px', fontWeight: '800', color: 'var(--status-active)', background: 'var(--status-active-bg)', padding: '4px 10px', borderRadius: '4px'}}>
-                             PRESENT
-                          </div>
-                       </div>
-                    ))}
-                 </div>
-              )}
-           </div>
-        </div>
+        <Card>
+          {history === null ? (
+            <ListSkeleton rows={5} />
+          ) : history.length === 0 ? (
+            <EmptyState
+              icon={CalendarCheck}
+              title="No check-ins today"
+              description="Entries will appear here as members arrive."
+            />
+          ) : (
+            <>
+              <CardHeader title={`Today's check-ins (${history.length})`} />
+              <ul className="flex flex-col gap-2">
+                {history.map((log) => (
+                  <li
+                    key={log.id}
+                    className="flex items-center gap-3 p-3 rounded-lg bg-surface-3"
+                  >
+                    {/*
+                      These read `log.members` and `log.check_in_time`. The page
+                      previously read `log.member` and `log.timestamp` — neither
+                      of which the API returns — so every row rendered a blank
+                      name and a `--:--` time.
+                    */}
+                    <Avatar name={log.members?.name} size="sm" />
+                    <span className="grow min-w-0">
+                      <span className="block text-sm font-semibold text-heading truncate">
+                        {log.members?.name || 'Unknown member'}
+                      </span>
+                      <span className="flex items-center gap-1 text-xs text-muted">
+                        <Clock className="size-3" aria-hidden="true" />
+                        {formatTime(log.check_in_time)}
+                      </span>
+                    </span>
+                    <Badge variant="success" dot>
+                      Present
+                    </Badge>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </Card>
       )}
-    </div>
+    </Page>
   );
 }

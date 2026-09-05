@@ -1,69 +1,64 @@
-import React, { createContext, useContext, useState, useCallback } from 'react';
-import { AlertTriangle, X } from 'lucide-react';
+import { createContext, useContext, useState, useCallback } from 'react';
+import Modal from '../components/ui/Modal';
+import Button from '../components/ui/Button';
 
 const ConfirmContext = createContext();
 
-export function ConfirmProvider({ children }) {
-  const [modal, setModal] = useState({
-    isOpen: false,
-    title: '',
-    message: '',
-    onConfirm: null,
-    confirmText: 'Delete',
-    cancelText: 'Cancel',
-    type: 'danger' // 'danger' or 'warning'
-  });
+const CLOSED = { isOpen: false };
 
-  const confirm = useCallback((options) => {
-    return new Promise((resolve) => {
-      setModal({
-        isOpen: true,
-        title: options.title || 'Are you sure?',
-        message: options.message || 'This action cannot be undone.',
-        confirmText: options.confirmText || 'Confirm',
-        cancelText: options.cancelText || 'Cancel',
-        type: options.type || 'danger',
-        onConfirm: () => {
-          setModal(p => ({ ...p, isOpen: false }));
-          resolve(true);
-        },
-        onCancel: () => {
-          setModal(p => ({ ...p, isOpen: false }));
-          resolve(false);
-        }
-      });
-    });
-  }, []);
+/**
+ * Promise-based confirmation dialog: `await confirm({ title, message })`.
+ *
+ * Now built on the shared Modal, so it inherits the focus trap, Escape
+ * handling, scroll lock and `role="dialog"` that the hand-rolled version
+ * lacked. It was also the last place still rendering `borderRadius: 0`, left
+ * over from an abandoned brutalist design.
+ */
+export function ConfirmProvider({ children }) {
+  const [modal, setModal] = useState(CLOSED);
+
+  const confirm = useCallback(
+    (options = {}) =>
+      new Promise((resolve) => {
+        const close = (result) => {
+          setModal(CLOSED);
+          resolve(result);
+        };
+        setModal({
+          isOpen: true,
+          title: options.title || 'Are you sure?',
+          message: options.message || 'This action cannot be undone.',
+          confirmText: options.confirmText || 'Confirm',
+          cancelText: options.cancelText || 'Cancel',
+          variant: options.type === 'warning' ? 'primary' : 'danger',
+          onConfirm: () => close(true),
+          onCancel: () => close(false),
+        });
+      }),
+    []
+  );
 
   return (
     <ConfirmContext.Provider value={confirm}>
       {children}
-      {modal.isOpen && (
-        <div className="modal-backdrop" style={{ zIndex: 1000 }} onClick={modal.onCancel}>
-          <div className="modal-content" style={{ maxWidth: 400, borderRadius: 0 }} onClick={e => e.stopPropagation()}>
-            <h3 style={{ fontSize: 'var(--font-lg)', fontWeight: 900, marginBottom: 'var(--space-sm)' }}>
-              {modal.title}
-            </h3>
-            
-            <p style={{ color: 'var(--text-secondary)', fontSize: 'var(--font-base)', marginBottom: 'var(--space-lg)', lineHeight: 1.5 }}>
-              {modal.message}
-            </p>
-
-            <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 'var(--space-sm)' }}>
-              <button className="btn btn-secondary" onClick={modal.onCancel}>
-                {modal.cancelText}
-              </button>
-              <button 
-                className={`btn ${modal.type === 'danger' ? 'btn-primary' : 'btn-primary'}`} 
-                style={{ background: modal.type === 'danger' ? 'var(--status-danger)' : 'var(--accent-primary)', borderColor: modal.type === 'danger' ? 'var(--status-danger)' : 'var(--accent-primary)' }}
-                onClick={modal.onConfirm}
-              >
-                {modal.confirmText}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <Modal
+        open={Boolean(modal.isOpen)}
+        onClose={modal.onCancel}
+        title={modal.title}
+        size="sm"
+        footer={
+          <>
+            <Button variant="secondary" block onClick={modal.onCancel}>
+              {modal.cancelText}
+            </Button>
+            <Button variant={modal.variant} block onClick={modal.onConfirm}>
+              {modal.confirmText}
+            </Button>
+          </>
+        }
+      >
+        <p className="text-sm text-body leading-relaxed">{modal.message}</p>
+      </Modal>
     </ConfirmContext.Provider>
   );
 }

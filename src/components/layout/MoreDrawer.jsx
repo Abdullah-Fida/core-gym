@@ -1,75 +1,84 @@
-import { 
-  Users, 
-  CreditCard, 
-  Receipt, 
-  UserSquare, 
-  CalendarCheck, 
-  Settings, 
-  LogOut,
-  X,
-  PlusCircle,
-  FileText
+import {
+  Receipt, Users, CalendarDays, Settings, LogOut, BarChart3,
+  UserPlus, ShoppingCart, Dumbbell, MessageCircle, DatabaseBackup,
 } from 'lucide-react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
+import Modal from '../ui/Modal';
+import { cn } from '../../lib/cn';
+
+// Every destination the bottom bar does not already carry.
+//
+// This listed only five items, so Classes, Enquiries, Shop, Trainers, WhatsApp
+// and Import/Export were unreachable on a phone — the sidebar that holds them
+// is hidden below 1024px.
+//
+// Each entry previously carried a hardcoded hex (#f87171, #60a5fa, #34d399,
+// #fbbf24, #8b5cf6) that duplicated the status tokens instead of referencing
+// them — and #8b5cf6 belonged to no palette at all.
+const MENU_ITEMS = [
+  { icon: CalendarDays, label: 'Classes', path: '/classes', tone: 'text-accent bg-accent-soft' },
+  { icon: UserPlus, label: 'Enquiries', path: '/leads', tone: 'text-info bg-info-soft' },
+  { icon: ShoppingCart, label: 'Shop', path: '/shop', tone: 'text-success bg-success-soft' },
+  { icon: Receipt, label: 'Expenses', path: '/expenses', tone: 'text-danger bg-danger-soft' },
+  { icon: BarChart3, label: 'Reports', path: '/payments/revenue', tone: 'text-warning bg-warning-soft' },
+  { icon: Users, label: 'Staff', path: '/staff', tone: 'text-info bg-info-soft' },
+  { icon: Dumbbell, label: 'Trainers', path: '/trainers', tone: 'text-accent bg-accent-soft' },
+  { icon: MessageCircle, label: 'WhatsApp', path: '/whatsapp', tone: 'text-success bg-success-soft' },
+  { icon: DatabaseBackup, label: 'Data', path: '/data', tone: 'text-muted bg-surface-3' },
+  { icon: Settings, label: 'Settings', path: '/settings', tone: 'text-muted bg-surface-3' },
+];
 
 export default function MoreDrawer({ isOpen, onClose }) {
   const { logout } = useAuth();
   const navigate = useNavigate();
 
-  if (!isOpen) return null;
-
-  const handleAction = (path) => {
+  const go = (path) => {
     navigate(path);
     onClose();
   };
 
-  const menuItems = [
-    { icon: Receipt, label: 'Expenses', path: '/expenses', color: '#f87171' },
-    { icon: UserSquare, label: 'Staff', path: '/staff', color: '#60a5fa' },
-    { icon: CalendarCheck, label: 'Attendance', path: '/attendance', color: '#34d399' },
-    { icon: FileText, label: 'Reports', path: '/expenses/summary', color: '#fbbf24' },
-    { icon: Settings, label: 'Settings', path: '/settings', color: '#8b5cf6' },
-  ];
-
   return (
-    <>
-      <div className="more-drawer-backdrop" onClick={onClose} />
-      <div className="more-drawer">
-        <div className="more-drawer-header">
-          <span className="more-drawer-title">Quick Access</span>
-          <button className="more-drawer-close" onClick={onClose}>
-            <X size={20} />
-          </button>
-        </div>
-        
-        <div className="more-drawer-grid">
-          {menuItems.map((item) => (
-            <button 
-              key={item.label}
-              className="more-drawer-item"
-              onClick={() => handleAction(item.path)}
-              style={{ '--item-color': item.color }}
-            >
-              <div className="more-drawer-icon">
-                <item.icon size={24} color={item.color} />
-              </div>
-              <span className="more-drawer-label">{item.label}</span>
-            </button>
-          ))}
-          
-          <button 
-            className="more-drawer-item logout"
-            onClick={() => { logout(); navigate('/login'); }}
-            style={{ '--item-color': 'var(--status-danger)' }}
+    <Modal open={isOpen} onClose={onClose} title="All areas" size="md">
+      <div className="grid grid-cols-3 gap-2">
+        {MENU_ITEMS.map((item) => (
+          <button
+            key={item.label}
+            type="button"
+            onClick={() => go(item.path)}
+            className={cn(
+              'flex flex-col items-center gap-2 p-3 rounded-xl border border-line',
+              'text-xs font-semibold text-body transition-colors',
+              'hover:bg-surface-3 hover:border-line-hover',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+            )}
           >
-            <div className="more-drawer-icon">
-              <LogOut size={24} color="var(--status-danger)" />
-            </div>
-            <span className="more-drawer-label">Logout</span>
+            <span className={cn('flex items-center justify-center size-11 rounded-xl', item.tone)}>
+              <item.icon className="size-5" aria-hidden="true" />
+            </span>
+            <span className="truncate w-full text-center">{item.label}</span>
           </button>
-        </div>
+        ))}
+
+        <button
+          type="button"
+          onClick={() => {
+            logout();
+            navigate('/login');
+          }}
+          className={cn(
+            'flex flex-col items-center gap-2 p-3 rounded-xl border border-line',
+            'text-xs font-semibold text-danger transition-colors',
+            'hover:bg-danger-soft hover:border-danger/40',
+            'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+          )}
+        >
+          <span className="flex items-center justify-center size-11 rounded-xl bg-danger-soft text-danger">
+            <LogOut className="size-5" aria-hidden="true" />
+          </span>
+          <span>Logout</span>
+        </button>
       </div>
-    </>
+    </Modal>
   );
 }

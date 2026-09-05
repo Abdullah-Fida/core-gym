@@ -1,5 +1,5 @@
 {
-  "name": "core-gym-mvp",
+  "name": "batgos",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -12,23 +12,32 @@
   "dependencies": {
     "axios": "^1.14.0",
     "chart.js": "^4.5.1",
+    "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
+    "jspdf": "^4.2.1",
+    "jspdf-autotable": "^5.0.8",
     "lucide-react": "^1.7.0",
+    "papaparse": "^5.7.0",
     "react": "^19.2.4",
     "react-chartjs-2": "^5.3.1",
     "react-dom": "^19.2.4",
     "react-router-dom": "^7.13.2",
-    "vite-plugin-pwa": "^1.2.0"
+    "tailwind-merge": "^3.6.0",
+    "vite-plugin-pwa": "^1.2.0",
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.3/xlsx-0.20.3.tgz"
   },
   "devDependencies": {
     "@eslint/js": "^9.39.4",
+    "@tailwindcss/vite": "^4.3.3",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "eslint": "^9.39.4",
+    "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.16",
     "globals": "^17.4.0",
+    "tailwindcss": "^4.3.3",
     "vite": "^6.0.0"
   }
 }

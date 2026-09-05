@@ -1,123 +1,140 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { ArrowLeft, Save, Loader2 } from 'lucide-react';
+import { Save, Trash2 } from 'lucide-react';
 import api from '../../lib/api';
-import { STAFF_ROLES } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import '../../styles/members.css';
+import { Page, PageHeader, BackLink, Button, Card, Skeleton, ErrorState } from '../../components/ui';
+import StaffForm from './StaffForm';
 
 export default function EditStaffPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  
+  const confirm = useConfirm();
+
   const [form, setForm] = useState(null);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [notFound, setNotFound] = useState(false);
 
   const { saveDraft, clearDraft } = useFormDraft(`edit-staff-${id}`, {}, (draft) => {
-    if (draft.form) setForm(prev => ({ ...prev, ...(draft.form || {}) }));
+    if (draft.form) setForm((prev) => ({ ...prev, ...draft.form }));
   });
 
   useEffect(() => {
     if (form) saveDraft({ form });
-  }, [form, saveDraft, id]);
+  }, [form, saveDraft]);
 
   useEffect(() => {
-    const fetchStaff = async () => {
+    (async () => {
       setLoading(true);
       try {
         const res = await api.get(`/staff/${id}`);
         const s = res.data.data;
-        if (s) {
-          setForm(prev => {
-            if (prev && prev.name) return prev;
-            return { 
-              name: s.name, 
-              phone: s.phone, 
-              role: s.role, 
-              custom_role: s.custom_role || '', 
-              join_date: s.join_date, 
-              monthly_salary: String(s.monthly_salary), 
-              status: s.status, 
-              notes: s.notes || '' 
-            };
-          });
+        if (!s) {
+          setNotFound(true);
+          return;
         }
+        setForm((prev) => {
+          if (prev?.name) return prev; // a restored draft wins over the server copy
+          return {
+            name: s.name,
+            phone: s.phone,
+            role: s.role,
+            custom_role: s.custom_role || '',
+            join_date: s.join_date || '',
+            monthly_salary: String(s.monthly_salary ?? ''),
+            status: s.status,
+            notes: s.notes || '',
+          };
+        });
       } catch (err) {
         console.error('Failed to fetch staff member', err);
-        toast.error('Staff member not found');
+        setNotFound(true);
       } finally {
         setLoading(false);
       }
-    };
-    fetchStaff();
+    })();
   }, [id]);
 
-  if (loading) return (
-    <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <Loader2 className="spin" size={48} style={{ color: 'var(--primary)' }} />
-    </div>
-  );
-
-  if (!form) return <div className="page-container"><p>Staff not found</p></div>;
-
-  const set = (k, v) => setForm(p => ({ ...p, [k]: v }));
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setIsSaving(true);
     try {
-      const updatedForm = { ...form, monthly_salary: Number(form.monthly_salary) };
-      await api.put(`/staff/${id}`, updatedForm);
-      toast.success('Staff updated!');
+      await api.put(`/staff/${id}`, { ...form, monthly_salary: Number(form.monthly_salary) || 0 });
+      toast.success('Staff member updated.');
       clearDraft();
       navigate(`/staff/${id}`);
     } catch (err) {
-      toast.error('Failed to update staff member');
-    } finally {
+      toast.error(err.response?.data?.message || 'Could not update this staff member.');
       setIsSaving(false);
     }
   };
 
+  const handleDelete = async () => {
+    // Replaces window.confirm(), which is unstyled, blocks the main thread and
+    // cannot be themed or translated.
+    const ok = await confirm({
+      title: 'Remove staff member?',
+      message: `${form?.name} will be removed from your staff list. Their salary history is preserved.`,
+      confirmText: 'Remove',
+    });
+    if (!ok) return;
+
+    try {
+      await api.delete(`/staff/${id}`);
+      toast.success('Staff member removed.');
+      navigate('/staff');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not remove this staff member.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <Page width="narrow">
+        <Skeleton className="h-9 w-48 mb-6" />
+        <Skeleton className="h-96" />
+      </Page>
+    );
+  }
+
+  if (notFound || !form) {
+    return (
+      <Page width="narrow">
+        <ErrorState
+          title="Staff member not found"
+          description="They may have been removed."
+          onRetry={() => navigate('/staff')}
+        />
+      </Page>
+    );
+  }
+
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <button className="btn btn-icon btn-secondary" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
-        <h1 className="page-title">Edit Staff</h1>
-      </div>
-      <form onSubmit={handleSubmit}>
-        <div className="form-group"><label className="form-label">Full Name</label><input className="form-input" value={form.name || ''} onChange={e => set('name', e.target.value)} /></div>
-        <div className="form-group"><label className="form-label">Phone</label><input className="form-input" value={form.phone || ''} onChange={e => set('phone', e.target.value)} /></div>
-        <div className="form-group"><label className="form-label">Role</label><select className="form-select" value={form.role || 'trainer'} onChange={e => set('role', e.target.value)}>{STAFF_ROLES.map(r => <option key={r.value} value={r.value}>{r.label}</option>)}</select></div>
-        {form.role === 'other' && <div className="form-group"><label className="form-label">Custom Role</label><input className="form-input" value={form.custom_role || ''} onChange={e => set('custom_role', e.target.value)} /></div>}
-        <div className="form-group"><label className="form-label">Monthly Salary (PKR)</label><input className="form-input" type="text" inputMode="numeric" value={form.monthly_salary || ''} onChange={e => set('monthly_salary', e.target.value)} /></div>
-        <div className="form-group"><label className="form-label">Status</label><select className="form-select" value={form.status || 'active'} onChange={e => set('status', e.target.value)}><option value="active">Active</option><option value="inactive">Inactive</option><option value="terminated">Terminated</option></select></div>
-        <div className="form-group"><label className="form-label">Notes</label><textarea className="form-textarea" value={form.notes || ''} onChange={e => set('notes', e.target.value)} /></div>
-        <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-          <button type="submit" className="btn btn-primary btn-lg" style={{ flex: 1 }} disabled={isSaving}>
-            {isSaving ? <Loader2 className="spin" size={18} /> : <><Save size={18} /> Update</>}
-          </button>
-          <button 
-            type="button" 
-            className="btn btn-danger btn-lg" 
-            onClick={async () => {
-              if (window.confirm('Are you sure you want to delete this staff member?')) {
-                try {
-                  await api.delete(`/staff/${id}`);
-                  toast.success('Staff removed');
-                  navigate('/staff');
-                } catch (err) {
-                  toast.error('Failed to delete staff');
-                }
-              }
-            }}
-          >
-            Delete
-          </button>
-        </div>
-      </form>
-    </div>
+    <Page width="narrow">
+      <PageHeader title="Edit staff" back={<BackLink to={`/staff/${id}`} label="Back" />} />
+
+      <Card padding="lg">
+        <form className="flex flex-col gap-4" onSubmit={handleSubmit}>
+          <StaffForm form={form} set={set} showStatus />
+
+          <div className="flex gap-2 mt-2">
+            <Button type="submit" size="lg" className="grow" loading={isSaving}>
+              <Save className="size-4" aria-hidden="true" />
+              Save changes
+            </Button>
+            <Button type="button" variant="danger-soft" size="lg" onClick={handleDelete}>
+              <Trash2 className="size-4" aria-hidden="true" />
+              Remove
+            </Button>
+          </div>
+        </form>
+      </Card>
+    </Page>
   );
 }
