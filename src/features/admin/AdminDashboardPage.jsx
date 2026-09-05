@@ -1,138 +1,224 @@
-import { useState, useEffect } from 'react';
-import { Building2, Users, CreditCard, TrendingUp, AlertTriangle, RefreshCcw, Loader2 } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  Building2, TrendingUp, Wallet, Coins, Repeat, CalendarClock,
+  Trophy, AlertTriangle, ChevronRight, Bell,
+} from 'lucide-react';
 import api from '../../lib/api';
-import { formatPKR, calculateHealthScore } from '../../lib/utils';
-import '../../styles/admin.css';
+import { calculateHealthScore } from '../../lib/utils';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, Card, CardHeader, Button, Badge,
+  StatCard, Skeleton, EmptyState,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
+
+const ALERT_TONES = {
+  trial_ending: 'bg-warning-soft text-warning',
+  suspended_expired: 'bg-danger-soft text-danger',
+  no_login: 'bg-info-soft text-info',
+};
 
 export default function AdminDashboardPage() {
+  const money = useMoney();
   const navigate = useNavigate();
-  const [metrics, setMetrics] = useState(null);
-  const [gyms, setGyms] = useState([]);
-  const [alerts, setAlerts] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState(null);
 
   useEffect(() => {
-    async function fetchData() {
-      setLoading(true);
+    let alive = true;
+    (async () => {
       try {
         const [mRes, gRes, aRes] = await Promise.all([
           api.get('/admin/metrics'),
           api.get('/admin/gyms', { params: { limit: 100 } }),
-          api.get('/admin/alerts')
+          api.get('/admin/alerts'),
         ]);
-        setMetrics(mRes.data.data);
-        setGyms(gRes.data.data);
-        setAlerts(aRes.data.data);
+        if (!alive) return;
+        setData({
+          metrics: mRes.data.data,
+          gyms: gRes.data.data || [],
+          alerts: aRes.data.data || [],
+        });
       } catch (err) {
         console.error('Failed to fetch admin dashboard data', err);
-      } finally {
-        setLoading(false);
+        if (alive) setData({ metrics: null, gyms: [], alerts: [] });
       }
-    }
-    fetchData();
+    })();
+    return () => {
+      alive = false;
+    };
   }, []);
 
-  if (loading || !metrics) {
-    return (
-      <div className="admin-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-        <Loader2 className="spin" size={48} />
-      </div>
-    );
-  }
+  const { topActive, lowHealth } = useMemo(() => {
+    const gyms = data?.gyms ?? [];
+    return {
+      topActive: [...gyms]
+        .sort((a, b) => (b.members?.[0]?.count || 0) - (a.members?.[0]?.count || 0))
+        .slice(0, 5),
+      lowHealth: [...gyms]
+        .map((g) => ({ ...g, healthScore: calculateHealthScore(g) }))
+        .sort((a, b) => a.healthScore - b.healthScore)
+        .slice(0, 5),
+    };
+  }, [data]);
 
-  // Top 5 most active (by member count)
-  const topActive = [...gyms].sort((a, b) => (b.members?.[0]?.count || 0) - (a.members?.[0]?.count || 0)).slice(0, 5);
-  // Top 5 lowest health
-  const lowHealth = [...gyms].map(g => ({ ...g, healthScore: calculateHealthScore(g) })).sort((a, b) => a.healthScore - b.healthScore).slice(0, 5);
+  const loading = !data;
+  const m = data?.metrics;
 
   const stats = [
-    { label: 'Total Gyms', value: metrics.totalGyms, color: 'var(--accent-primary)', path: '/admin/gyms' },
-    { label: 'Monthly Revenue', value: formatPKR(metrics.totalMonthlyRevenue || 0), color: 'var(--status-active)', path: '/admin/payments?type=RECURRING' },
-    { label: 'Setup Fees', value: formatPKR(metrics.totalSetupRevenue || 0), color: 'var(--status-warning)', path: '/admin/payments?type=SETUP' },
-    { label: 'Total Income', value: formatPKR(metrics.totalCombinedRevenue || 0), color: 'var(--text-primary)', path: '/admin/payments' },
-    { label: 'MRR (Estimated)', value: formatPKR(metrics.mrr || 0), color: 'var(--status-info)' },
-    { label: 'Renewals Due (7d)', value: metrics.renewalsDue, color: 'var(--status-warning)', path: '/admin/alerts' },
+    { label: 'Total gyms', value: m?.totalGyms ?? 0, tone: 'accent', icon: Building2, path: '/admin/gyms' },
+    { label: 'Monthly revenue', value: money(m?.totalMonthlyRevenue || 0), tone: 'success', icon: TrendingUp, path: '/admin/payments' },
+    { label: 'Setup fees', value: money(m?.totalSetupRevenue || 0), tone: 'warning', icon: Coins, path: '/admin/payments' },
+    { label: 'Total income', value: money(m?.totalCombinedRevenue || 0), tone: 'accent', icon: Wallet, path: '/admin/payments' },
+    { label: 'MRR (estimated)', value: money(m?.mrr || 0), tone: 'info', icon: Repeat },
+    { label: 'Renewals due (7d)', value: m?.renewalsDue ?? 0, tone: 'warning', icon: CalendarClock, path: '/admin/alerts' },
   ];
 
   return (
-    <div className="admin-container">
-      <div style={{ marginBottom: 'var(--space-xl)' }}>
-        <h1 className="page-title" style={{ fontSize: 'var(--font-2xl)' }}>Admin Dashboard</h1>
-        <p className="page-subtitle">Platform overview & business intelligence</p>
+    <Page>
+      <PageHeader title="Platform overview" subtitle="Gyms, revenue and things needing attention" />
+
+      <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 mb-6">
+        {stats.map((s) => {
+          const card = (
+            <StatCard
+              key={s.label}
+              label={s.label}
+              value={s.value}
+              tone={s.tone}
+              icon={s.icon}
+              loading={loading}
+              className={s.path && 'h-full transition-all hover:border-line-hover hover:-translate-y-px'}
+            />
+          );
+          return s.path ? (
+            <button
+              key={s.label}
+              type="button"
+              onClick={() => navigate(s.path)}
+              className="text-left rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              {card}
+            </button>
+          ) : (
+            card
+          );
+        })}
       </div>
 
-      <div className="admin-stats-grid">
-        {stats.map((s, i) => (
-          <div 
-            key={i} 
-            className={`admin-stat-card ${s.path ? 'clickable' : ''}`} 
-            onClick={() => s.path && navigate(s.path)}
-            style={{ cursor: s.path ? 'pointer' : 'default' }}
-          >
-            <div className="stat-label">{s.label}</div>
-            <div className="stat-value" style={{ color: s.color, fontSize: s.value?.toString().length > 10 ? '1.4rem' : 'var(--font-2xl)' }}>{s.value}</div>
-            {s.path && <div style={{ fontSize: 10, color: 'var(--text-muted)', marginTop: 4 }}>View Details →</div>}
-          </div>
-        ))}
+      <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 mb-4">
+        <Card>
+          <CardHeader
+            title="Most active gyms"
+            subtitle="By member count"
+            action={
+              <Button variant="ghost" size="sm" onClick={() => navigate('/admin/gyms')}>
+                All gyms
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </Button>
+            }
+          />
+          {loading ? (
+            <Skeleton className="h-48" />
+          ) : topActive.length === 0 ? (
+            <EmptyState icon={Trophy} title="No gyms yet" className="py-8" />
+          ) : (
+            <ol className="flex flex-col gap-2">
+              {topActive.map((g, i) => (
+                <li key={g.id}>
+                  <button
+                    type="button"
+                    onClick={() => navigate(`/admin/gyms/${g.id}`)}
+                    className="flex items-center gap-3 w-full p-2.5 text-left rounded-lg border border-line transition-colors hover:bg-surface-3 hover:border-line-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  >
+                    <span className="flex items-center justify-center size-7 rounded-full bg-accent text-accent-contrast text-xs font-bold shrink-0">
+                      {i + 1}
+                    </span>
+                    <span className="grow min-w-0">
+                      <span className="block text-sm font-semibold text-heading truncate">{g.gym_name}</span>
+                      <span className="block text-xs text-muted truncate">
+                        {g.city ? `${g.city} · ` : ''}
+                        {g.members?.[0]?.count || 0} members
+                      </span>
+                    </span>
+                    <Badge variant="accent">{g.plan_type}</Badge>
+                  </button>
+                </li>
+              ))}
+            </ol>
+          )}
+        </Card>
+
+        <Card>
+          <CardHeader title="Action needed" subtitle="Lowest health scores" />
+          {loading ? (
+            <Skeleton className="h-48" />
+          ) : lowHealth.length === 0 ? (
+            <EmptyState icon={AlertTriangle} title="Nothing to act on" className="py-8" />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {lowHealth.map((g) => {
+                const variant = g.healthScore <= 30 ? 'danger' : g.healthScore <= 60 ? 'warning' : 'success';
+                return (
+                  <li key={g.id}>
+                    <button
+                      type="button"
+                      onClick={() => navigate(`/admin/gyms/${g.id}`)}
+                      className="flex items-center gap-3 w-full p-2.5 text-left rounded-lg border border-line transition-colors hover:bg-surface-3 hover:border-line-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                    >
+                      <Badge variant={variant}>{g.healthScore}</Badge>
+                      <span className="grow min-w-0">
+                        <span className="block text-sm font-semibold text-heading truncate">{g.gym_name}</span>
+                        <span className="block text-xs text-muted truncate">
+                          {g.owner_name}
+                          {g.city ? ` · ${g.city}` : ''}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-xl)' }}>
-        {/* Top Active Gyms */}
-        <div className="admin-section">
-          <div className="admin-section-header"><h2>🏆 Most Active Gyms</h2></div>
-          {topActive.map((g, i) => (
-            <div key={g.id} className="card card-clickable" style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}
-              onClick={() => navigate(`/admin/gyms/${g.id}`)}>
-              <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--accent-gradient)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 12 }}>{i + 1}</div>
-              <div style={{ flex: 1 }}>
-                <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{g.gym_name}</div>
-                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{g.city} • {g.members?.[0]?.count || 0} members</div>
-              </div>
-              <span className="badge badge-active">{g.plan_type}</span>
-            </div>
-          ))}
-        </div>
-
-        {/* Low Health Score */}
-        <div className="admin-section">
-          <div className="admin-section-header"><h2>⚠️ Action Needed</h2></div>
-          {lowHealth.map(g => {
-            const hClass = g.healthScore <= 30 ? 'red' : g.healthScore <= 60 ? 'yellow' : 'green';
-            return (
-              <div key={g.id} className="card card-clickable" style={{ marginBottom: 'var(--space-sm)', display: 'flex', alignItems: 'center', gap: 'var(--space-md)' }}
-                onClick={() => navigate(`/admin/gyms/${g.id}`)}>
-                <span className={`health-badge ${hClass}`}>{g.healthScore}</span>
-                <div style={{ flex: 1 }}>
-                  <div style={{ fontWeight: 600, fontSize: 'var(--font-sm)' }}>{g.gym_name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{g.owner_name} • {g.city}</div>
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Recent Alerts */}
-      {alerts.length > 0 && (
-        <div className="admin-section">
-          <div className="admin-section-header">
-            <h2>🔔 Active Alerts ({alerts.length})</h2>
-            <button className="btn btn-secondary btn-sm" onClick={() => navigate('/admin/alerts')}>View All</button>
-          </div>
-          {alerts.slice(0, 3).map(a => (
-            <div key={a.id} className="alert-card">
-              <div className="alert-icon" style={{ background: a.type === 'trial_ending' ? 'var(--status-warning-bg)' : a.type === 'subscription_expired' ? 'var(--status-danger-bg)' : 'var(--status-info-bg)' }}>
-                {a.type === 'trial_ending' ? '⏰' : a.type === 'no_login' ? '😴' : a.type === 'no_members' ? '👤' : '🔴'}
-              </div>
-              <div className="alert-body">
-                <h4>{a.gym.gym_name}</h4>
-                <p>{a.message}</p>
-              </div>
-            </div>
-          ))}
-        </div>
+      {!loading && data.alerts.length > 0 && (
+        <Card>
+          <CardHeader
+            title={`Active alerts (${data.alerts.length})`}
+            action={
+              <Button variant="ghost" size="sm" onClick={() => navigate('/admin/alerts')}>
+                View all
+                <ChevronRight className="size-3.5" aria-hidden="true" />
+              </Button>
+            }
+          />
+          <ul className="flex flex-col gap-2">
+            {data.alerts.slice(0, 3).map((a) => (
+              <li
+                key={a.id}
+                className="flex items-start gap-3 p-3 rounded-lg border border-line bg-surface-3/40"
+              >
+                <span
+                  className={cn(
+                    'flex items-center justify-center size-9 rounded-lg shrink-0',
+                    ALERT_TONES[a.type] ?? 'bg-info-soft text-info'
+                  )}
+                >
+                  <Bell className="size-4" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-heading truncate">
+                    {a.gym?.gym_name}
+                  </span>
+                  <span className="block text-xs text-muted">{a.message}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
       )}
-    </div>
+    </Page>
   );
 }

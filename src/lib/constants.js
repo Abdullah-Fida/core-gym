@@ -1,6 +1,7 @@
-// Core Gym — Constants & Enums
+// Batgos — Constants & Enums
 
-export const ADMIN_EMAIL = 'wahabwaqas345@gmail.com';
+/** Product name. Used as the fallback whenever a gym has no name of its own. */
+export const APP_NAME = 'Batgos';
 
 export const MEMBER_STATUS = {
   ACTIVE: 'active',
@@ -37,13 +38,16 @@ export const EXPENSE_CATEGORIES = [
   { value: 'custom', label: 'Custom', icon: '✏️' },
 ];
 
+// `tone` names a Badge/Avatar variant rather than a raw hex. The previous
+// values (#6c5ce7, #00b894, #fdcb6e, #ff7675, #74b9ff, #a0a0b8) came from an
+// unrelated palette and ignored the theme entirely.
 export const STAFF_ROLES = [
-  { value: 'trainer', label: 'Trainer', color: '#6c5ce7' },
-  { value: 'cleaner', label: 'Cleaner', color: '#00b894' },
-  { value: 'receptionist', label: 'Receptionist', color: '#fdcb6e' },
-  { value: 'security', label: 'Security', color: '#ff7675' },
-  { value: 'manager', label: 'Manager', color: '#74b9ff' },
-  { value: 'other', label: 'Other', color: '#a0a0b8' },
+  { value: 'trainer', label: 'Trainer', tone: 'accent' },
+  { value: 'manager', label: 'Manager', tone: 'info' },
+  { value: 'receptionist', label: 'Receptionist', tone: 'warning' },
+  { value: 'security', label: 'Security', tone: 'danger' },
+  { value: 'cleaner', label: 'Cleaner', tone: 'success' },
+  { value: 'other', label: 'Other', tone: 'neutral' },
 ];
 
 

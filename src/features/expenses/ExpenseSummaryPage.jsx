@@ -1,176 +1,203 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, TrendingUp, TrendingDown, Minus, Loader2 } from 'lucide-react';
+import { TrendingUp, TrendingDown, Wallet, Receipt, Layers, PieChart } from 'lucide-react';
 import api from '../../lib/api';
-import { formatPKR, getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
+import { getCurrentMonth, getCurrentYear, getMonthName } from '../../lib/utils';
 import { EXPENSE_CATEGORIES } from '../../lib/constants';
-import '../../styles/members.css';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, BackLink, Card, CardHeader,
+  Select, StatCard, Skeleton, EmptyState,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
+
+/** Timezone-safe parse of a `YYYY-MM-DD` column; `m` is 1-indexed. */
+const dateParts = (dateStr) => {
+  if (!dateStr) return { y: 0, m: 0 };
+  const [y, m] = String(dateStr).slice(0, 10).split('-').map(Number);
+  return { y, m };
+};
 
 export default function ExpenseSummaryPage() {
-  const navigate = useNavigate();
-  const [viewMode, setViewMode] = useState(getCurrentMonth());
+  const money = useMoney();
+  const [viewMode, setViewMode] = useState(String(getCurrentMonth()));
   const year = getCurrentYear();
-  
+
   const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     let isMounted = true;
-    const fetchSummary = async () => {
-      setLoading(true);
+    (async () => {
+      setSummary(null);
       try {
         const [paymentsRes, expensesRes, staffRes] = await Promise.all([
           api.get('/payments'),
           api.get('/expenses'),
-          api.get('/staff')
+          api.get('/staff'),
         ]);
-
         if (!isMounted) return;
 
-        const localPayments = paymentsRes.data.data || [];
-        const localExpenses = expensesRes.data.data || [];
-        const staffData = staffRes.data.data || [];
-        
-        const localStaffPayments = [];
-        staffData.forEach(s => {
-          if (s.staff_payments) s.staff_payments.forEach(p => localStaffPayments.push(p));
-        });
+        const payments = paymentsRes.data.data || [];
+        const expenses = expensesRes.data.data || [];
+        const staffPayments = (staffRes.data.data || []).flatMap((s) => s.staff_payments || []);
 
-        let filteredExpenses = localExpenses;
-        let filteredPayments = localPayments;
-        let filteredStaff = localStaffPayments;
-
-        // Timezone-safe date parser for YYYY-MM-DD strings
-        const getDateParts = (dateStr) => {
-          if (!dateStr) return { y: 0, m: 0 };
-          const s = String(dateStr).slice(0, 10);
-          const [y, m] = s.split('-').map(Number);
-          return { y, m }; // m is 1-indexed here
-        };
+        let fExpenses = expenses;
+        let fPayments = payments;
+        let fStaff = staffPayments;
 
         if (viewMode === 'this_year') {
-          filteredExpenses = localExpenses.filter(e => getDateParts(e.expense_date).y === year);
-          filteredPayments = localPayments.filter(p => getDateParts(p.payment_date).y === year);
-          filteredStaff = localStaffPayments.filter(p => p.year === year);
+          fExpenses = expenses.filter((e) => dateParts(e.expense_date).y === year);
+          fPayments = payments.filter((p) => dateParts(p.payment_date).y === year);
+          fStaff = staffPayments.filter((p) => p.year === year);
         } else if (viewMode !== 'all_time') {
-          // specific month of current year
           const m = Number(viewMode);
-          filteredExpenses = localExpenses.filter(e => {
-            const parts = getDateParts(e.expense_date);
+          fExpenses = expenses.filter((e) => {
+            const parts = dateParts(e.expense_date);
             return parts.y === year && parts.m === m;
           });
-          filteredPayments = localPayments.filter(p => {
-            const parts = getDateParts(p.payment_date);
+          fPayments = payments.filter((p) => {
+            const parts = dateParts(p.payment_date);
             return parts.y === year && parts.m === m;
           });
-          filteredStaff = localStaffPayments.filter(p => p.year === year && p.month === m);
+          fStaff = staffPayments.filter((p) => p.year === year && p.month === m);
         }
 
-        const rev = filteredPayments.reduce((s, p) => s + p.amount, 0);
-        const exp = filteredExpenses.reduce((s, e) => s + e.amount, 0);
-        const sal = filteredStaff.reduce((s, p) => s + Number(p.amount_paid), 0);
-        const totalExp = exp + sal;
+        const revenue = fPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
+        const generalExpenseOnly = fExpenses.reduce((s, e) => s + Number(e.amount || 0), 0);
+        const salaryOnly = fStaff.reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+        const total = generalExpenseOnly + salaryOnly;
 
         const byCategory = {};
-        filteredExpenses.forEach(e => { byCategory[e.category] = (byCategory[e.category] || 0) + e.amount; });
+        for (const e of fExpenses) {
+          byCategory[e.category] = (byCategory[e.category] || 0) + Number(e.amount || 0);
+        }
 
         setSummary({
-          revenue: rev,
-          expenses: totalExp,
-          profit: rev - totalExp,
-          salaryOnly: sal,
-          generalExpenseOnly: exp,
-          byCategory
+          revenue,
+          expenses: total,
+          profit: revenue - total,
+          salaryOnly,
+          generalExpenseOnly,
+          byCategory,
         });
       } catch (err) {
-        console.error('Failed to compute summary from API:', err);
-      } finally {
-        if (isMounted) setLoading(false);
+        console.error('Failed to compute summary:', err);
+        if (isMounted) setSummary({ revenue: 0, expenses: 0, profit: 0, salaryOnly: 0, generalExpenseOnly: 0, byCategory: {} });
       }
+    })();
+    return () => {
+      isMounted = false;
     };
-    
-    fetchSummary();
-    return () => { isMounted = false; };
   }, [year, viewMode]);
 
-  if (loading || !summary) return (
-    <div className="page-container" style={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <Loader2 className="spin" size={48} style={{ color: 'var(--primary)' }} />
-    </div>
-  );
-
-  const revenue = summary.revenue || 0;
-  const expenses = summary.expenses || 0;
-  const profit = summary.profit || 0;
-  const byCategory = summary.byCategory || {};
+  const loading = !summary;
+  const profit = summary?.profit ?? 0;
+  const categories = Object.entries(summary?.byCategory ?? {}).sort((a, b) => b[1] - a[1]);
 
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <button className="btn btn-icon btn-secondary" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
-        <h1 className="page-title">Profit / Loss</h1>
-      </div>
+    <Page>
+      <PageHeader title="Profit &amp; loss" back={<BackLink to="/expenses" label="Expenses" />} />
 
-      <select className="form-select" style={{ marginBottom: 'var(--space-lg)' }} value={viewMode} onChange={e => setViewMode(e.target.value)}>
-        <option value="this_year">This Year</option>
-        <option value="all_time">All Time</option>
-        <optgroup label="Specific Month (This Year)">
-          {Array.from({ length: 12 }, (_, i) => <option key={i + 1} value={i + 1}>{getMonthName(i + 1)}</option>)}
+      <Select
+        aria-label="Reporting period"
+        className="mb-5"
+        value={viewMode}
+        onChange={(e) => setViewMode(e.target.value)}
+      >
+        <option value="this_year">This year</option>
+        <option value="all_time">All time</option>
+        <optgroup label="Specific month (this year)">
+          {Array.from({ length: 12 }, (_, i) => (
+            <option key={i + 1} value={String(i + 1)}>
+              {getMonthName(i + 1)}
+            </option>
+          ))}
         </optgroup>
-      </select>
+      </Select>
 
-      {/* 4 Boxes Summary */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <TrendingUp size={20} style={{ color: 'var(--status-active)', margin: '0 auto var(--space-xs)' }} />
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Revenue</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: 'var(--status-active)' }}>{formatPKR(revenue)}</div>
-        </div>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <Minus size={20} style={{ color: '#e84393', margin: '0 auto var(--space-xs)' }} />
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Staff Salaries</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#e84393' }}>{formatPKR(summary.salaryOnly || 0)}</div>
-        </div>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <Minus size={20} style={{ color: '#fdcb6e', margin: '0 auto var(--space-xs)' }} />
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>General Expenses</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: '#fdcb6e' }}>{formatPKR(summary.generalExpenseOnly || 0)}</div>
-        </div>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <Minus size={20} style={{ color: 'var(--status-danger)', margin: '0 auto var(--space-xs)' }} />
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Total All Expenses</div>
-          <div style={{ fontSize: 'var(--font-md)', fontWeight: 800, color: 'var(--status-danger)' }}>{formatPKR(expenses)}</div>
-        </div>
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+        <StatCard label="Revenue" tone="success" icon={TrendingUp} loading={loading}
+          value={money(summary?.revenue ?? 0)} />
+        <StatCard label="Staff salaries" tone="warning" icon={Wallet} loading={loading}
+          value={money(summary?.salaryOnly ?? 0)} />
+        <StatCard label="General expenses" tone="info" icon={Receipt} loading={loading}
+          value={money(summary?.generalExpenseOnly ?? 0)} />
+        <StatCard label="Total expenses" tone="danger" icon={Layers} loading={loading}
+          value={money(summary?.expenses ?? 0)} />
       </div>
 
-      <div className="card" style={{ textAlign: 'center', border: `2px solid ${profit >= 0 ? 'rgba(0,184,148,0.3)' : 'rgba(255,118,117,0.3)'}`, marginBottom: 'var(--space-lg)' }}>
-        {profit >= 0 ? <TrendingUp size={24} style={{ color: 'var(--status-active)', margin: '0 auto var(--space-xs)' }} /> : <TrendingDown size={24} style={{ color: 'var(--status-danger)', margin: '0 auto var(--space-xs)' }} />}
-        <div style={{ fontSize: 'var(--font-sm)', color: 'var(--text-muted)' }}>Net Profit</div>
-        <div style={{ fontSize: 'var(--font-2xl)', fontWeight: 900, color: profit >= 0 ? 'var(--status-active)' : 'var(--status-danger)' }}>{formatPKR(profit)}</div>
-      </div>
+      <Card
+        className={cn(
+          'text-center mb-6 border-2',
+          loading ? 'border-line' : profit >= 0 ? 'border-success/30' : 'border-danger/30'
+        )}
+        padding="lg"
+      >
+        {loading ? (
+          <Skeleton className="h-14 w-48 mx-auto" />
+        ) : (
+          <>
+            <span
+              className={cn(
+                'inline-flex items-center justify-center size-10 rounded-xl mb-2',
+                profit >= 0 ? 'bg-success-soft text-success' : 'bg-danger-soft text-danger'
+              )}
+            >
+              {profit >= 0 ? (
+                <TrendingUp className="size-5" aria-hidden="true" />
+              ) : (
+                <TrendingDown className="size-5" aria-hidden="true" />
+              )}
+            </span>
+            <p className="text-sm text-muted">Net profit</p>
+            <p
+              className={cn(
+                'text-3xl font-bold font-display tabular-nums',
+                profit >= 0 ? 'text-success' : 'text-danger'
+              )}
+            >
+              {money(profit)}
+            </p>
+          </>
+        )}
+      </Card>
 
-      {/* Category Breakdown */}
-      <h3 className="section-title">Expense Breakdown</h3>
-      <div className="card">
-        {Object.entries(byCategory).map(([cat, amt]) => {
-          const catInfo = EXPENSE_CATEGORIES.find(c => c.value === cat);
-          const pct = expenses > 0 ? Math.round((amt / expenses) * 100) : 0;
-          return (
-            <div key={cat} style={{ padding: '12px 0', borderBottom: '1px solid var(--border-color)', display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-              <span style={{ fontSize: 20 }}>{catInfo?.icon || '📦'}</span>
-              <div style={{ flex: 1 }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 4 }}>
-                  <span style={{ fontSize: 'var(--font-sm)', fontWeight: 500 }}>{catInfo?.label || cat}</span>
-                  <span style={{ fontSize: 'var(--font-sm)', fontWeight: 700 }}>{formatPKR(amt)}</span>
-                </div>
-                <div style={{ height: 4, background: 'var(--bg-tertiary)', borderRadius: 2 }}>
-                  <div style={{ height: '100%', width: `${pct}%`, background: 'var(--accent-gradient)', borderRadius: 2, transition: 'width 0.5s ease' }}></div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
+      <Card>
+        <CardHeader title="Expense breakdown" subtitle="General expenses by category" />
+        {loading ? (
+          <Skeleton className="h-40" />
+        ) : categories.length === 0 ? (
+          <EmptyState icon={PieChart} title="No expenses" description="Nothing logged for this period." className="py-8" />
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {categories.map(([cat, amt]) => {
+              const info = EXPENSE_CATEGORIES.find((c) => c.value === cat);
+              const pct = summary.expenses > 0 ? Math.round((amt / summary.expenses) * 100) : 0;
+              return (
+                <li key={cat} className="flex items-center gap-3">
+                  <span className="text-xl shrink-0" aria-hidden="true">
+                    {info?.icon || '📦'}
+                  </span>
+                  <div className="grow min-w-0">
+                    <div className="flex items-baseline justify-between gap-2 mb-1">
+                      <span className="text-sm font-medium text-body truncate">{info?.label || cat}</span>
+                      <span className="text-sm font-bold text-heading tabular-nums shrink-0">
+                        {money(amt)}
+                        <span className="text-muted font-medium ml-1.5">{pct}%</span>
+                      </span>
+                    </div>
+                    <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                      <div
+                        className="h-full rounded-full bg-accent transition-[width] duration-500"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+    </Page>
   );
 }

@@ -1,61 +1,93 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowLeft, Save, CreditCard, Calendar, ChevronRight, SkipForward, Loader2 } from 'lucide-react';
+import { CreditCard, CalendarCheck, ChevronRight, SkipForward, Check } from 'lucide-react';
 import api from '../../lib/api';
-import { useAuth } from '../../contexts/AuthContext';
-import { todayStr, calculateExpiryDate, formatDate, formatDateTime, formatPKR, getInitials } from '../../lib/utils';
+import { todayStr, calculateExpiryDate, formatDate, generateId } from '../../lib/utils';
 import { printThermalReceipt } from '../../lib/thermalPrinter';
-import { PLAN_DURATIONS, PAYMENT_METHODS } from '../../lib/constants';
+import { PLAN_DURATIONS, PAYMENT_METHODS, APP_NAME } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
-import { generateId } from '../../lib/utils';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, BackLink, Card, Button, Badge, Avatar,
+  Input, Textarea, Tabs, Toggle,
+} from '../../components/ui';
+import ReceiptModal from '../payments/ReceiptModal';
+import { parseReceiptReason, stripReceiptMarkers } from '../payments/receiptText';
+
+const DEFAULT_FEE_FALLBACK = '3000';
+
+const INITIAL = {
+  step: 1,
+  memberForm: { name: '', phone: '', join_date: todayStr(), emergency_contact: '', notes: '' },
+  payForm: {
+    amount: DEFAULT_FEE_FALLBACK,
+    payment_date: todayStr(),
+    plan_duration_months: 1,
+    custom_days: '',
+    payment_method: 'cash',
+    received_by: '',
+    notes: '',
+    include_registration: false,
+    registration_amount: '',
+    is_trial: false,
+    trial_days: '',
+  },
+  newMember: null,
+};
+
+function StepIndicator({ step }) {
+  const steps = ['Member details', 'Payment'];
+  return (
+    <ol className="flex items-center gap-2 mb-6">
+      {steps.map((label, i) => {
+        const n = i + 1;
+        const done = step > n;
+        const current = step === n;
+        return (
+          <li key={label} className="flex items-center gap-2">
+            <span
+              className={cn(
+                'flex items-center justify-center size-7 rounded-full text-xs font-bold shrink-0 transition-colors',
+                done || current ? 'bg-accent text-accent-contrast' : 'bg-surface-3 text-muted'
+              )}
+              aria-current={current ? 'step' : undefined}
+            >
+              {done ? <Check className="size-3.5" aria-hidden="true" /> : n}
+            </span>
+            <span className={cn('text-xs font-semibold', current ? 'text-heading' : 'text-muted')}>
+              {label}
+            </span>
+            {n < steps.length && (
+              <span
+                className={cn('w-8 h-px mx-1', step > n ? 'bg-accent' : 'bg-line')}
+                aria-hidden="true"
+              />
+            )}
+          </li>
+        );
+      })}
+    </ol>
+  );
+}
 
 export default function AddMemberPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const { user } = useAuth();
   const [loading, setLoading] = useState(false);
   const [receipts, setReceipts] = useState([]);
   const [showReceipts, setShowReceipts] = useState(false);
   const [gym, setGym] = useState(null);
-
-  // Unified state for easier drafting
-  const [form, setForm] = useState({
-    step: 1,
-    memberForm: {
-      name: '',
-      phone: '',
-      join_date: todayStr(),
-      emergency_contact: '',
-      notes: '',
-    },
-    payForm: {
-      amount: '3000',
-      payment_date: todayStr(),
-      plan_duration_months: 1,
-      custom_days: '',
-      payment_method: 'cash',
-      received_by: '',
-      notes: '',
-      // New fields for registration/trial flow
-      include_registration: false,
-      registration_amount: '',
-      is_trial: false,
-      trial_days: '',
-    },
-    newMember: null
-  });
+  const [form, setForm] = useState(INITIAL);
 
   const { saveDraft, clearDraft } = useFormDraft('add-member', {}, (draft) => {
-    if (draft) {
-      setForm(prev => ({
-        ...prev,
-        ...draft,
-        // Ensure sub-objects are merged too
-        memberForm: { ...prev.memberForm, ...(draft.memberForm || {}) },
-        payForm: { ...prev.payForm, ...(draft.payForm || {}) }
-      }));
-    }
+    if (!draft) return;
+    setForm((prev) => ({
+      ...prev,
+      ...draft,
+      memberForm: { ...prev.memberForm, ...(draft.memberForm || {}) },
+      payForm: { ...prev.payForm, ...(draft.payForm || {}) },
+    }));
   });
 
   useEffect(() => {
@@ -65,32 +97,26 @@ export default function AddMemberPage() {
   const { memberForm, payForm, step, newMember } = form;
 
   useEffect(() => {
-    const fetchSettings = async () => {
+    (async () => {
       try {
         const res = await api.get('/gym');
-        setGym(res.data.data || null);
-        if (res.data.data?.default_monthly_fee) {
-          setForm(prev => {
-            if (prev.payForm.amount === '3000' || !prev.payForm.amount) {
-              return {
-                ...prev,
-                payForm: { ...prev.payForm, amount: String(res.data.data.default_monthly_fee) }
-              };
-            }
-            return prev;
-          });
+        const g = res.data.data || null;
+        setGym(g);
+        if (g?.default_monthly_fee) {
+          setForm((prev) =>
+            prev.payForm.amount === DEFAULT_FEE_FALLBACK || !prev.payForm.amount
+              ? { ...prev, payForm: { ...prev.payForm, amount: String(g.default_monthly_fee) } }
+              : prev
+          );
         }
       } catch (err) {
         console.error('Failed to fetch gym settings', err);
       }
-    };
-    fetchSettings();
+    })();
   }, []);
 
-  const setMember = (k, v) => setForm(p => ({ ...p, memberForm: { ...p.memberForm, [k]: v } }));
-  const setPay = (k, v) => setForm(p => ({ ...p, payForm: { ...p.payForm, [k]: v } }));
-  const setStep = (v) => setForm(p => ({ ...p, step: v }));
-  const setNewMember = (v) => setForm(p => ({ ...p, newMember: v }));
+  const setMember = (k, v) => setForm((p) => ({ ...p, memberForm: { ...p.memberForm, [k]: v } }));
+  const setPay = (k, v) => setForm((p) => ({ ...p, payForm: { ...p.payForm, [k]: v } }));
 
   const expiryDate = (() => {
     if (!payForm.payment_date) return null;
@@ -99,54 +125,51 @@ export default function AddMemberPage() {
     }
     if (!payForm.plan_duration_months) return null;
     return payForm.plan_duration_months === 'custom'
-      ? (payForm.custom_days ? calculateExpiryDate(payForm.payment_date, 0, payForm.custom_days) : null)
+      ? payForm.custom_days
+        ? calculateExpiryDate(payForm.payment_date, 0, payForm.custom_days)
+        : null
       : calculateExpiryDate(payForm.payment_date, payForm.plan_duration_months);
   })();
 
-  const shortId = (id) => id ? String(id).substring(0,8) : '';
-
-  // ── Step 1 Submit: Save member, go to Step 2 ──
   const handleMemberSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
-    if (!memberForm.name.trim()) { toast.error('Name is required'); return; }
-    if (!memberForm.phone.trim()) { toast.error('Phone number is required'); return; }
-    
+    if (!memberForm.name.trim()) {
+      toast.error('Name is required.');
+      return;
+    }
+    if (!memberForm.phone.trim()) {
+      toast.error('Phone number is required.');
+      return;
+    }
+
     setLoading(true);
     try {
-      // Server-side will handle duplicate checking on phone+name if needed
-      // (or we can just attempt to post and let the server return 409 if exists)
-      
-      const id = generateId();
-      const memberData = { ...memberForm, id };
-      
-      // DIRECT ONLINE API CALL
-      const res = await api.post('/members', memberData);
+      const res = await api.post('/members', { ...memberForm, id: generateId() });
       const serverMember = res.data.data;
-      
-      setNewMember(serverMember);
-      toast.success(`${serverMember.name} added successfully!`);
-      setStep(2);
+      setForm((p) => ({ ...p, newMember: serverMember, step: 2 }));
+      toast.success(`${serverMember.name} added.`);
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || 'Failed to add member');
+      toast.error(err.response?.data?.message || 'Could not add this member.');
     } finally {
       setLoading(false);
     }
   };
 
-  // ── Step 2 Submit: Save payment, go to member detail ──
   const handlePaymentSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
-    // Handle free trial flow
+
     if (payForm.is_trial) {
-      if (!payForm.trial_days || Number(payForm.trial_days) <= 0) { toast.error('Enter valid trial days'); return; }
+      if (!payForm.trial_days || Number(payForm.trial_days) <= 0) {
+        toast.error('Enter a valid number of trial days.');
+        return;
+      }
       setLoading(true);
       try {
-        const id = generateId();
-        const paymentData = {
-          id,
+        await api.post('/payments', {
+          id: generateId(),
           member_id: newMember.id,
           amount: 0,
           payment_date: payForm.payment_date,
@@ -156,435 +179,332 @@ export default function AddMemberPage() {
           received_by: payForm.received_by,
           notes: `payment_type:trial;${payForm.notes || ''}`,
           payment_type: 'trial',
-          last_sync: null
-        };
-
-        // DIRECT ONLINE API CALL
-        const res = await api.post('/payments', paymentData);
-        const serverPayment = res.data.data;
-
-        toast.success(`${newMember.name} is now on a free trial!`);
+          expiry_date: expiryDate,
+        });
+        toast.success(`${newMember.name} is now on a free trial.`);
         clearDraft();
         navigate(`/members/${newMember.id}`);
       } catch (err) {
-        toast.error('Failed to start trial locally');
-      } finally {
+        toast.error(err.response?.data?.message || 'Could not start the trial.');
         setLoading(false);
       }
       return;
     }
 
-    // Standard membership payment
     if (!payForm.amount || Number(payForm.amount) <= 0) {
-      toast.error('Enter a valid amount');
+      toast.error('Enter a valid amount.');
       return;
     }
     if (payForm.plan_duration_months === 'custom' && (!payForm.custom_days || Number(payForm.custom_days) <= 0)) {
-      toast.error('Enter valid custom days'); return;
+      toast.error('Enter a valid number of days.');
+      return;
     }
 
     setLoading(true);
     try {
-      const now = new Date().toISOString();
-      const estimatedExpiry = expiryDate;
-
-      // Calculate total amount (membership + registration if included)
       const membershipAmount = Number(payForm.amount);
-      const registrationAmount = (payForm.include_registration && payForm.registration_amount) ? Number(payForm.registration_amount) : 0;
+      const registrationAmount =
+        payForm.include_registration && payForm.registration_amount
+          ? Number(payForm.registration_amount)
+          : 0;
       const totalAmount = membershipAmount + registrationAmount;
 
-      // Build notes with registration info if included
       let notes = payForm.notes || '';
       if (registrationAmount > 0) {
         notes = `payment_type:membership;registration_fee:${registrationAmount};${notes}`;
       }
 
-      const id = generateId();
-      const paymentData = {
-        id,
+      const res = await api.post('/payments', {
+        id: generateId(),
         member_id: newMember.id,
         amount: totalAmount,
         payment_date: payForm.payment_date,
-        plan_duration_months: payForm.plan_duration_months === 'custom' ? 'custom' : Number(payForm.plan_duration_months),
+        plan_duration_months:
+          payForm.plan_duration_months === 'custom' ? 'custom' : Number(payForm.plan_duration_months),
         custom_days: Number(payForm.custom_days) || 0,
         payment_method: payForm.payment_method,
         received_by: payForm.received_by,
         notes,
         payment_type: 'membership',
-        expiry_date: estimatedExpiry,
-        created_at: now,
-        last_sync: null
-      };
+        expiry_date: expiryDate,
+        created_at: new Date().toISOString(),
+      });
 
-      // DIRECT ONLINE API CALL
-      const res = await api.post('/payments', paymentData);
-      const serverPayment = res.data.data;
-
-      // Build a single combined receipt
-      const receiptData = {
-        ...serverPayment,
+      const receipt = {
+        ...res.data.data,
         member_name: newMember.name,
         member_phone: newMember.phone,
-        expiry_date: estimatedExpiry,
+        expiry_date: expiryDate,
       };
-
-      // If registration was included, add itemized breakdown for the receipt
       if (registrationAmount > 0) {
-        receiptData.items = [
-          { label: 'Membership Fee', amount: membershipAmount },
-          { label: 'Registration Fee', amount: registrationAmount }
+        receipt.items = [
+          { label: 'Membership fee', amount: membershipAmount },
+          { label: 'Registration fee', amount: registrationAmount },
         ];
-        receiptData.total = totalAmount;
+        receipt.total = totalAmount;
       }
 
-      setReceipts([receiptData]);
+      setReceipts([receipt]);
       setShowReceipts(true);
-      window.dispatchEvent(new CustomEvent('local-db-changed'));
-      toast.success(`Payment saved successfully for ${newMember.name}!`);
+      toast.success(`Payment saved for ${newMember.name}.`);
       clearDraft();
     } catch (err) {
       console.error(err);
-      toast.error(err.response?.data?.message || 'Failed to log payment');
+      toast.error(err.response?.data?.message || 'Could not log this payment.');
     } finally {
       setLoading(false);
     }
   };
 
-  const parseReason = (notes) => {
-    if (!notes) return 'Membership Fee';
-    const m = String(notes).match(/payment_type:([a-z_]+);?/i);
-    let base = m ? (m[1] === 'registration' ? 'Registration Fee' : m[1] === 'trial' ? 'Free Trial' : m[1] === 'membership' ? 'Membership Fee' : m[1]) : '';
-    const rest = String(notes).replace(/payment_type:[^;]+;?/, '').trim();
-    if (!base && rest) return rest;
-    return rest ? `${base} — ${rest}` : (base || 'Membership Fee');
+  const finish = () => {
+    setShowReceipts(false);
+    navigate(`/members/${newMember.id}`);
   };
 
   const printReceipt = (r) => {
     try {
-      const gymName = (gym && (gym.gym_name || gym.name)) ? (gym.gym_name || gym.name) : 'Gym';
-      const cleanNotes = r.notes ? String(r.notes).replace(/payment_type:[^;]+;?|registration_fee:\d+;?/g, '').trim() : '';
-
       printThermalReceipt({
-        gymName,
+        gymName: gym?.gym_name || gym?.name || APP_NAME,
         invoiceId: r.id,
         memberName: r.member_name || '',
-        memberPhone: r.member_phone || r.memberPhone || '',
+        memberPhone: r.member_phone || '',
         amount: r.amount,
         paymentDate: r.payment_date,
         paymentMethod: r.payment_method,
         expiryDate: r.expiry_date,
-        receivedBy: r.received_by || r.receivedBy || '',
-        reason: parseReason(r.notes || ''),
-        notes: cleanNotes || undefined,
+        receivedBy: r.received_by || '',
+        reason: parseReceiptReason(r.notes),
+        notes: stripReceiptMarkers(r.notes) || undefined,
         items: r.items,
         total: r.total,
       });
-
-      setShowReceipts(false);
-      navigate(`/members/${newMember.id}`);
-    } catch (e) { console.error(e); toast.error('Unable to print'); }
-  };
-
-  const cancelReceipt = async (receiptObj) => {
-    try {
-      const ids = receiptObj && receiptObj.ids && Array.isArray(receiptObj.ids) ? receiptObj.ids : [receiptObj.id];
-      for (const pid of ids) {
-        await api.delete(`/payments/${pid}`);
-      }
-      setReceipts(prev => prev.filter(x => x.id !== receiptObj.id));
-      toast.success('Receipt canceled');
-      if (receipts.length === 1) {
-        setShowReceipts(false);
-        navigate(`/members/${newMember.id}`);
-      }
+      finish();
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to cancel payment');
+      console.error(err);
+      toast.error('Could not open the printer.');
     }
   };
 
-  // ── Skip payment for now ──
   const handleSkip = () => {
-    toast.info(`${newMember.name} added. Payment can be logged later.`);
+    toast.info(`${newMember.name} added. You can log a payment later.`);
     clearDraft();
     navigate('/members');
   };
 
-  // ────────────────────────────────────────────────
   return (
-    <div className="page-container">
+    <Page width="narrow">
+      <PageHeader
+        title={step === 1 ? 'Add member' : 'Log first payment'}
+        subtitle={step === 1 ? 'Step 1 of 2' : 'Step 2 of 2'}
+        back={<BackLink to="/members" label="Members" />}
+      />
 
-      {/* ── Step Indicator ── */}
-      <div className="step-indicator">
-        <div className={`step-dot ${step >= 1 ? 'active' : ''}`}>
-          <span>1</span>
-          <div className="step-label">Member Info</div>
-        </div>
-        <div className={`step-line ${step >= 2 ? 'active' : ''}`} />
-        <div className={`step-dot ${step >= 2 ? 'active' : ''}`}>
-          <span>2</span>
-          <div className="step-label">Payment</div>
-        </div>
-      </div>
+      <StepIndicator step={step} />
 
-      {/* ══════════ STEP 1: Member Form ══════════ */}
       {step === 1 && (
-        <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-            <button className="btn btn-icon btn-secondary" onClick={() => navigate('/members')}>
-              <ArrowLeft size={20} />
-            </button>
-            <div>
-              <h1 className="page-title">Add Member</h1>
-              <p className="page-subtitle">Step 1 of 2 — Member Details</p>
-            </div>
-          </div>
+        <Card padding="lg">
+          <form className="flex flex-col gap-4" onSubmit={handleMemberSubmit}>
+            <Input
+              label="Full name"
+              required
+              autoFocus
+              placeholder="e.g. Ali Hassan"
+              value={memberForm.name || ''}
+              onChange={(e) => setMember('name', e.target.value)}
+            />
+            <Input
+              label="Phone number"
+              required
+              type="tel"
+              inputMode="tel"
+              placeholder="03001234567"
+              value={memberForm.phone || ''}
+              onChange={(e) => setMember('phone', e.target.value)}
+            />
+            <Input
+              label="Join date"
+              type="date"
+              value={memberForm.join_date || ''}
+              onChange={(e) => setMember('join_date', e.target.value)}
+            />
+            <Input
+              label="Emergency contact"
+              placeholder="Contact name and phone (optional)"
+              value={memberForm.emergency_contact || ''}
+              onChange={(e) => setMember('emergency_contact', e.target.value)}
+            />
+            <Textarea
+              label="Notes"
+              placeholder="Any notes…"
+              value={memberForm.notes || ''}
+              onChange={(e) => setMember('notes', e.target.value)}
+            />
 
-          <form onSubmit={handleMemberSubmit}>
-            <div className="form-group">
-              <label className="form-label">Full Name *</label>
-              <input
-                className="form-input"
-                placeholder="e.g. Ali Hassan"
-                value={memberForm.name || ''}
-                onChange={e => setMember('name', e.target.value)}
-                autoFocus
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Phone Number *</label>
-              <input
-                className="form-input"
-                placeholder="03001234567"
-                type="tel"
-                value={memberForm.phone || ''}
-                onChange={e => setMember('phone', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Join Date</label>
-              <input
-                className="form-input"
-                type="date"
-                value={memberForm.join_date || ''}
-                onChange={e => setMember('join_date', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Emergency Contact</label>
-              <input
-                className="form-input"
-                placeholder="Contact name & phone (optional)"
-                value={memberForm.emergency_contact || ''}
-                onChange={e => setMember('emergency_contact', e.target.value)}
-              />
-            </div>
-
-            <div className="form-group">
-              <label className="form-label">Notes</label>
-              <textarea
-                className="form-textarea"
-                placeholder="Any notes..."
-                value={memberForm.notes || ''}
-                onChange={e => setMember('notes', e.target.value)}
-              />
-            </div>
-
-            <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading}>
-              {loading ? <Loader2 className="spin" size={18} /> : 'Next — Log Payment'} 
-              {!loading && <ChevronRight size={18} />}
-            </button>
+            <Button type="submit" size="lg" block loading={loading} className="mt-2">
+              Next — log payment
+              <ChevronRight className="size-4" aria-hidden="true" />
+            </Button>
           </form>
-        </>
+        </Card>
       )}
 
-      {/* ══════════ STEP 2: Payment Form ══════════ */}
       {step === 2 && newMember && (
         <>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-            <button className="btn btn-icon btn-secondary" onClick={() => navigate('/members')}>
-              <ArrowLeft size={20} />
-            </button>
-            <div>
-              <h1 className="page-title">Log Payment</h1>
-              <p className="page-subtitle">Step 2 of 2 — Fee Collection</p>
-            </div>
-          </div>
+          <Card className="flex items-center gap-3 mb-4">
+            <Avatar name={newMember.name} size="sm" />
+            <span className="grow min-w-0">
+              <span className="block font-semibold text-heading truncate">{newMember.name}</span>
+              <span className="block text-xs text-muted truncate">{newMember.phone}</span>
+            </span>
+            <Badge variant="success" dot>
+              Added
+            </Badge>
+          </Card>
 
-          {/* Member recap card */}
-          <div className="new-member-recap">
-            <div className="avatar avatar-sm" style={{ background: 'var(--accent-primary)', color: 'white', flexShrink: 0 }}>
-              {getInitials(newMember.name)}
-            </div>
-            <div style={{ flex: 1 }}>
-              <div style={{ fontWeight: 700 }}>{newMember.name}</div>
-              <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{newMember.phone}</div>
-            </div>
-            <span className="badge badge-active" style={{ fontSize: 10 }}>New ✓</span>
-          </div>
-
-          <form onSubmit={handlePaymentSubmit}>
-            {/* Payment / Trial toggle */}
-            <div className="form-group">
-              <label className="form-label">Type</label>
-              <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-                <button type="button" className={`btn ${!payForm.is_trial ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPay('is_trial', false)}>Payment</button>
-                <button type="button" className={`btn ${payForm.is_trial ? 'btn-primary' : 'btn-secondary'} btn-sm`} onClick={() => setPay('is_trial', true)}>Free Trial</button>
+          <Card padding="lg">
+            <form className="flex flex-col gap-4" onSubmit={handlePaymentSubmit}>
+              <div>
+                <span className="block text-xs font-semibold text-body mb-1.5">Type</span>
+                <Tabs
+                  value={payForm.is_trial ? 'trial' : 'payment'}
+                  onChange={(key) => setPay('is_trial', key === 'trial')}
+                  items={[
+                    { key: 'payment', label: 'Payment' },
+                    { key: 'trial', label: 'Free trial' },
+                  ]}
+                />
               </div>
-            </div>
 
-            {/* Trial UI */}
-            {payForm.is_trial ? (
-              <div className="form-group">
-                <label className="form-label">Trial Days</label>
-                <input className="form-input" type="text" inputMode="numeric" value={payForm.trial_days || ''} onChange={e => setPay('trial_days', e.target.value)} placeholder="Number of days" />
-              </div>
-            ) : (
-              <>
-                <div className="form-group">
-                  <label className="form-label">Amount (PKR)</label>
-                  <input
-                    className="form-input"
-                    type="text" inputMode="numeric"
+              {payForm.is_trial ? (
+                <Input
+                  label="Trial days"
+                  required
+                  type="number"
+                  min="1"
+                  placeholder="Number of days"
+                  value={payForm.trial_days || ''}
+                  onChange={(e) => setPay('trial_days', e.target.value)}
+                />
+              ) : (
+                <>
+                  <Input
+                    label="Membership amount"
+                    required
+                    type="text"
+                    inputMode="numeric"
                     value={payForm.amount || ''}
-                    onChange={e => setPay('amount', e.target.value)}
+                    onChange={(e) => setPay('amount', e.target.value)}
                   />
-                </div>
 
-                {/* Registration fee toggle */}
-                <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-                  <input id="regFee" type="checkbox" checked={!!payForm.include_registration} onChange={e => setPay('include_registration', e.target.checked)} />
-                  <label htmlFor="regFee" style={{ marginLeft: 8 }}>Include registration fee</label>
-                </div>
-                {payForm.include_registration && (
-                  <div className="form-group">
-                    <label className="form-label">Registration Fee (PKR)</label>
-                    <input className="form-input" type="text" inputMode="numeric" value={payForm.registration_amount || ''} onChange={e => setPay('registration_amount', e.target.value)} />
-                  </div>
-                )}
-              </>
-            )}
+                  <Toggle
+                    label="Include registration fee"
+                    description="Added on top of the membership amount, itemised on the receipt."
+                    checked={payForm.include_registration}
+                    onChange={(v) => setPay('include_registration', v)}
+                  />
 
-            <div className="form-group">
-              <label className="form-label">Payment Date</label>
-              <input
-                className="form-input"
-                type="date"
-                value={payForm.payment_date || ''}
-                onChange={e => setPay('payment_date', e.target.value)}
-              />
-            </div>
-
-            {!payForm.is_trial && (
-              <>
-                <div className="form-group">
-                  <label className="form-label">Plan Duration</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(100px, 1fr))', gap: 'var(--space-sm)', marginBottom: payForm.plan_duration_months === 'custom' ? 'var(--space-sm)' : 0 }}>
-                    {PLAN_DURATIONS.map(d => (
-                      <button
-                        key={d.value}
-                        type="button"
-                        className={`btn ${String(payForm.plan_duration_months) === String(d.value) ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                        onClick={() => setPay('plan_duration_months', d.value)}
-                      >
-                        {d.label}
-                      </button>
-                    ))}
-                  </div>
-                  {payForm.plan_duration_months === 'custom' && (
-                    <input 
-                      className="form-input" 
-                      type="text" inputMode="numeric" 
-                      placeholder="Enter number of days" 
-                      value={payForm.custom_days} 
-                      onChange={e => setPay('custom_days', e.target.value)} 
+                  {payForm.include_registration && (
+                    <Input
+                      label="Registration fee"
+                      type="text"
+                      inputMode="numeric"
+                      value={payForm.registration_amount || ''}
+                      onChange={(e) => setPay('registration_amount', e.target.value)}
                     />
                   )}
-                </div>
+                </>
+              )}
 
-                <div className="form-group">
-                  <label className="form-label">Payment Method</label>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 'var(--space-sm)' }}>
-                    {PAYMENT_METHODS.map(m => (
-                      <button
-                        key={m.value}
-                        type="button"
-                        className={`btn ${payForm.payment_method === m.value ? 'btn-primary' : 'btn-secondary'} btn-sm`}
-                        onClick={() => setPay('payment_method', m.value)}
-                      >
-                        {m.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </>
-            )}
+              <Input
+                label="Payment date"
+                type="date"
+                value={payForm.payment_date || ''}
+                onChange={(e) => setPay('payment_date', e.target.value)}
+              />
 
-            {expiryDate && (
-              <div className="expiry-preview" style={{ marginBottom: 'var(--space-md)' }}>
-                <Calendar size={18} className="icon" />
-                <div className="text">
-                  Membership valid till: <span className="date">{formatDate(expiryDate)}</span>
-                </div>
-              </div>
-            )}
+              {!payForm.is_trial && (
+                <>
+                  <fieldset>
+                    <legend className="text-xs font-semibold text-body mb-1.5">Plan duration</legend>
+                    <div className="grid grid-cols-3 sm:grid-cols-5 gap-2">
+                      {PLAN_DURATIONS.map((d) => (
+                        <Button
+                          key={d.value}
+                          type="button"
+                          size="sm"
+                          variant={
+                            String(payForm.plan_duration_months) === String(d.value) ? 'primary' : 'secondary'
+                          }
+                          aria-pressed={String(payForm.plan_duration_months) === String(d.value)}
+                          onClick={() => setPay('plan_duration_months', d.value)}
+                        >
+                          {d.label}
+                        </Button>
+                      ))}
+                    </div>
+                    {payForm.plan_duration_months === 'custom' && (
+                      <Input
+                        className="mt-2"
+                        type="number"
+                        min="1"
+                        aria-label="Custom number of days"
+                        placeholder="Enter number of days"
+                        value={payForm.custom_days}
+                        onChange={(e) => setPay('custom_days', e.target.value)}
+                      />
+                    )}
+                  </fieldset>
 
-            <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={loading} style={{ marginBottom: 'var(--space-sm)' }}>
-              {loading ? <Loader2 className="spin" size={18} /> : <><CreditCard size={18} /> Save Payment & Finish</>}
-            </button>
+                  <fieldset>
+                    <legend className="text-xs font-semibold text-body mb-1.5">Payment method</legend>
+                    <div className="grid grid-cols-2 gap-2">
+                      {PAYMENT_METHODS.map((m) => (
+                        <Button
+                          key={m.value}
+                          type="button"
+                          size="sm"
+                          variant={payForm.payment_method === m.value ? 'primary' : 'secondary'}
+                          aria-pressed={payForm.payment_method === m.value}
+                          onClick={() => setPay('payment_method', m.value)}
+                        >
+                          {m.label}
+                        </Button>
+                      ))}
+                    </div>
+                  </fieldset>
+                </>
+              )}
 
-            <button type="button" className="btn btn-secondary btn-block" onClick={handleSkip}>
-              <SkipForward size={16} /> Skip — Add Payment Later
-            </button>
-          </form>
+              {expiryDate && (
+                <p className="flex items-center gap-2 p-3 rounded-lg bg-accent-soft text-accent text-sm">
+                  <CalendarCheck className="size-4 shrink-0" aria-hidden="true" />
+                  <span>
+                    Membership valid until <strong>{formatDate(expiryDate)}</strong>
+                  </span>
+                </p>
+              )}
+
+              <Button type="submit" size="lg" block loading={loading} className="mt-2">
+                <CreditCard className="size-4" aria-hidden="true" />
+                {payForm.is_trial ? 'Start free trial' : 'Save payment and finish'}
+              </Button>
+
+              <Button type="button" variant="ghost" block onClick={handleSkip}>
+                <SkipForward className="size-4" aria-hidden="true" />
+                Skip — add payment later
+              </Button>
+            </form>
+          </Card>
         </>
       )}
 
-        {showReceipts && (
-          <div className="modal-backdrop" onClick={() => { setShowReceipts(false); navigate(`/members/${newMember.id}`); }}>
-            <div className="modal-content" style={{ maxWidth: 600 }} onClick={e => e.stopPropagation()}>
-              <h2 style={{ marginTop: 0 }}>Payment Receipt{receipts.length > 1 ? 's' : ''}</h2>
-              <div style={{ display: 'grid', gap: 12 }}>
-                {receipts.map(r => (
-                  <div key={r.id} className="card" style={{ padding: 12 }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                      <div>
-                        <div style={{ fontWeight: 700 }}>{r.member_name || r.member_id}</div>
-                        <div style={{ fontSize: 13, color: 'var(--text-muted)' }}>Invoice: {shortId(r.id)}</div>
-                        {r.expiry_date && <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>Valid till: {formatDate(r.expiry_date)}</div>}
-                      </div>
-                      <div style={{ textAlign: 'right' }}>
-                        {r.items && Array.isArray(r.items) ? (
-                          <>
-                            <div style={{ fontWeight: 800, color: 'var(--status-active)' }}>{formatPKR(r.total)}</div>
-                            <div style={{ fontSize: 12 }}>{formatDateTime(r.payment_date || new Date().toISOString())}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{r.items.map(it => it.label).join(' + ')}</div>
-                          </>
-                        ) : (
-                          <>
-                            <div style={{ fontWeight: 800, color: 'var(--status-active)' }}>{formatPKR(r.amount)}</div>
-                            <div style={{ fontSize: 12 }}>{(r.payment_date && (String(r.payment_date).includes('T') || new Date(r.payment_date).getHours() || new Date(r.payment_date).getMinutes())) ? formatDateTime(r.payment_date) : formatDate(r.payment_date)}</div>
-                            <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{parseReason(r.notes || '')}</div>
-                          </>
-                        )}
-                        {r.member_phone && <div style={{ fontSize: 12 }}>{r.member_phone}</div>}
-                        {r.received_by && <div style={{ fontSize: 12 }}>Received by: {r.received_by}</div>}
-                      </div>
-                    </div>
-                    <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
-                      <button className="btn btn-secondary btn-sm" onClick={() => printReceipt(r)}>Print</button>
-                    </div>
-                  </div>
-                ))}
-              </div>
-              <div style={{ marginTop: 12 }}>
-                <button className="btn btn-primary btn-block" onClick={() => { setShowReceipts(false); navigate(`/members/${newMember.id}`); }}>Done</button>
-              </div>
-            </div>
-          </div>
-        )}
-    </div>
+      <ReceiptModal
+        open={showReceipts}
+        onClose={finish}
+        onDone={finish}
+        onPrint={printReceipt}
+        receipts={receipts}
+      />
+    </Page>
   );
 }

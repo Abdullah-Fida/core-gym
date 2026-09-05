@@ -1,5 +1,5 @@
 /**
- * Core Gym — Thermal Printer Utility
+ * Batgos — Thermal Printer Utility
  * 
  * Builds receipt HTML optimized for 58mm / 80mm thermal printers
  * and prints directly via a hidden iframe (no save dialog).
@@ -9,7 +9,9 @@ import { formatPKR, formatDate, formatDateTime } from './utils';
 
 // ── Settings (persisted in localStorage) ──────────────────
 
-const SETTINGS_KEY = 'core_gym_printer_settings';
+import { STORAGE_KEYS } from './storageKeys';
+
+const SETTINGS_KEY = STORAGE_KEYS.printer;
 
 const DEFAULT_SETTINGS = {
   paperWidth: '58mm',  // '58mm' or '80mm'
@@ -124,15 +126,15 @@ export function buildReceiptHTML(data) {
   }
 
   let finalGymName = data.gymName;
-  if (!finalGymName || finalGymName === 'GYM' || finalGymName === 'CORE GYM') {
+  if (!finalGymName || finalGymName === 'GYM' || finalGymName === 'BATGOS') {
     try {
-      const cachedRaw = localStorage.getItem('core_gym_settings');
-      const userRaw = localStorage.getItem('core_gym_user');
+      const cachedRaw = localStorage.getItem(STORAGE_KEYS.gymSettings);
+      const userRaw = localStorage.getItem(STORAGE_KEYS.user);
       const settings = cachedRaw ? JSON.parse(cachedRaw) : {};
       const userObj = userRaw ? JSON.parse(userRaw) : {};
-      finalGymName = settings.gym_name || userObj.gym_name || 'CORE GYM';
+      finalGymName = settings.gym_name || userObj.gym_name || 'BATGOS';
     } catch (e) {
-      finalGymName = 'CORE GYM';
+      finalGymName = 'BATGOS';
     }
   }
 
@@ -195,7 +197,7 @@ export function buildTestPageHTML() {
 <body>
   <div class="receipt">
     <div class="double-line"></div>
-    <div class="center header">CORE GYM</div>
+    <div class="center header">BATGOS</div>
     <div class="center sub-header">Printer Test Page</div>
     <div class="double-line"></div>
     <div class="row"><span class="label">Status</span><span class="value">OK ✓</span></div>

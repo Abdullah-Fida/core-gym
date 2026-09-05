@@ -1,154 +1,193 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, LogIn, Activity, Users, TrendingUp, ShieldCheck } from 'lucide-react';
+import { Eye, EyeOff, LogIn, Activity, Users, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import '../../styles/auth.css';
+import { APP_NAME } from '../../lib/constants';
+import { Button, Input, Field } from '../../components/ui';
+
+/**
+ * Why the user was bounced back to /login. The API client redirects here with
+ * ?suspended=1 (gym deactivated) or ?expired=1 (401), and the banner is read
+ * once at mount so it survives the history rewrite below.
+ */
+function redirectReason() {
+  const params = new URLSearchParams(window.location.search);
+  if (params.get('suspended') === '1') {
+    return 'Your gym access has been suspended by the admin. Please contact support.';
+  }
+  if (params.get('expired') === '1') {
+    return 'Your session has expired. Please log in again.';
+  }
+  return '';
+}
+
+const FEATURES = [
+  {
+    icon: Users,
+    title: 'Smart member management',
+    body: 'Track attendance, subscriptions and renewals from one place.',
+  },
+  {
+    icon: Activity,
+    title: 'Real-time analytics',
+    body: 'See daily cash, growth and expiring memberships at a glance.',
+  },
+  {
+    icon: ShieldCheck,
+    title: 'Secure and reliable',
+    body: 'Every gym’s data is isolated and protected.',
+  },
+];
 
 export default function LoginPage() {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPass, setShowPass] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(redirectReason);
   const [loading, setLoading] = useState(false);
   const { login } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('suspended') === '1') {
-      setError('Your gym access has been suspended by the admin. Please contact support at 03069005213.');
-      window.history.replaceState(null, '', '/login');
-    } else if (params.get('expired') === '1') {
-      setError('Your session has expired. Please log in again.');
-      window.history.replaceState(null, '', '/login');
-    }
+    if (window.location.search) window.history.replaceState(null, '', '/login');
   }, []);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
-    if (!email || !password) { setError('Please enter email and password'); return; }
+    if (!email || !password) {
+      setError('Please enter your email and password.');
+      return;
+    }
     setLoading(true);
 
     const result = await login(email, password);
     if (result.success) {
-      if (result.role === 'admin') navigate('/admin/dashboard');
-      else navigate('/dashboard');
+      navigate(result.role === 'admin' ? '/admin/dashboard' : '/dashboard');
     } else {
       setError(result.error);
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   return (
-    <div className="auth-page">
-      <div className="auth-mesh-bg">
-        <div className="orb orb-1"></div>
-        <div className="orb orb-2"></div>
-        <div className="orb orb-3"></div>
-      </div>
-      
-      <div className="auth-split-container">
-        {/* Left Column: Welcome Message */}
-        <div className="auth-welcome-col">
-          <div className="welcome-content">
-            <div className="welcome-logo">
-              <div className="logo-box">CG</div>
-              <span>Core Gym</span>
-            </div>
-            <h1 className="welcome-title">Elevate Your Fitness Business.</h1>
-            <p className="welcome-subtitle">
-              The all-in-one management platform designed specifically for modern gyms and fitness centers.
-            </p>
-            
-            <div className="feature-list">
-              <div className="feature-item">
-                <div className="feature-icon"><Users size={20} /></div>
-                <div className="feature-text">
-                  <h3>Smart Member Management</h3>
-                  <p>Track attendance, subscriptions, and active members easily.</p>
-                </div>
-              </div>
-              <div className="feature-item">
-                <div className="feature-icon"><Activity size={20} /></div>
-                <div className="feature-text">
-                  <h3>Real-time Analytics</h3>
-                  <p>Monitor your daily snapshots and business growth.</p>
-                </div>
-              </div>
-              <div className="feature-item">
-                <div className="feature-icon"><ShieldCheck size={20} /></div>
-                <div className="feature-text">
-                  <h3>Secure & Reliable</h3>
-                  <p>Your data is protected with enterprise-grade security.</p>
-                </div>
-              </div>
-            </div>
+    <div className="min-h-screen bg-surface grid lg:grid-cols-2">
+      {/* Marketing column — desktop only */}
+      <div className="relative hidden lg:flex flex-col justify-center p-12 overflow-hidden bg-surface-2 border-r border-line">
+        <div
+          className="pointer-events-none absolute -top-32 -left-24 size-96 rounded-full bg-accent/15 blur-3xl"
+          aria-hidden="true"
+        />
+        <div
+          className="pointer-events-none absolute -bottom-40 -right-20 size-112 rounded-full bg-info/10 blur-3xl"
+          aria-hidden="true"
+        />
+
+        <div className="relative max-w-md">
+          <div className="flex items-center gap-3 mb-10">
+            <span className="flex items-center justify-center size-11 rounded-xl bg-accent text-accent-contrast font-bold">
+              BG
+            </span>
+            <span className="text-xl font-bold text-heading font-display">{APP_NAME}</span>
           </div>
+
+          <h1 className="text-4xl font-bold text-heading font-display tracking-tight leading-[1.15]">
+            Run your gym, not your spreadsheets.
+          </h1>
+          <p className="text-base text-muted mt-4 leading-relaxed">
+            Members, fees, attendance, staff and reporting — one platform built for how gyms
+            actually work.
+          </p>
+
+          <ul className="flex flex-col gap-6 mt-12">
+            {FEATURES.map((f) => (
+              <li key={f.title} className="flex gap-4">
+                <span className="flex items-center justify-center size-10 rounded-xl bg-accent-soft text-accent shrink-0">
+                  <f.icon className="size-5" aria-hidden="true" />
+                </span>
+                <span>
+                  <span className="block font-semibold text-heading">{f.title}</span>
+                  <span className="block text-sm text-muted mt-0.5">{f.body}</span>
+                </span>
+              </li>
+            ))}
+          </ul>
         </div>
+      </div>
 
-        {/* Right Column: Login Form */}
-        <div className="auth-form-col">
-          <div className="auth-form-wrapper">
-            <div className="auth-header-mobile">
-               <div className="logo-box mobile-only">CG</div>
-               <h2>Welcome Back</h2>
-               <p>Please enter your details to sign in.</p>
-            </div>
-
-            {error && <div className="auth-error">{error}</div>}
-
-            <form className="auth-form" onSubmit={handleSubmit}>
-              <div className="form-group">
-                <label className="form-label">Email or Phone</label>
-                <input
-                  id="login-email"
-                  type="text"
-                  className="form-input"
-                  placeholder="Enter your email or phone"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  autoComplete="email"
-                />
-              </div>
-
-              <div className="form-group">
-                <label className="form-label">Password</label>
-                <div style={{ position: 'relative' }}>
-                  <input
-                    id="login-password"
-                    type={showPass ? 'text' : 'password'}
-                    className="form-input"
-                    placeholder="••••••••"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    style={{ paddingRight: 44 }}
-                  />
-                  <button
-                    type="button"
-                    onClick={() => setShowPass(!showPass)}
-                    className="btn-pass-toggle"
-                  >
-                    {showPass ? <EyeOff size={18} /> : <Eye size={18} />}
-                  </button>
-                </div>
-              </div>
-
-              <div className="auth-options">
-                <Link to="/forgot-password" className="forgot-link">
-                  Forgot password?
-                </Link>
-              </div>
-
-              <button id="login-submit" type="submit" className="auth-submit-btn" disabled={loading}>
-                {loading ? <span className="spinner"></span> : <><LogIn size={20} /> Sign In</>}
-              </button>
-            </form>
-
-            <div className="auth-footer">
-              Don't have an account? <span className="contact-link">Contact Support</span>
-            </div>
+      {/* Form column */}
+      <div className="flex items-center justify-center p-6 sm:p-10">
+        <div className="w-full max-w-sm">
+          <div className="lg:hidden flex items-center gap-3 mb-8">
+            <span className="flex items-center justify-center size-10 rounded-xl bg-accent text-accent-contrast font-bold text-sm">
+              BG
+            </span>
+            <span className="text-lg font-bold text-heading font-display">{APP_NAME}</span>
           </div>
+
+          <h2 className="text-2xl font-bold text-heading font-display">Welcome back</h2>
+          <p className="text-sm text-muted mt-1.5">Enter your details to sign in.</p>
+
+          {error && (
+            <p
+              role="alert"
+              className="mt-5 p-3 rounded-lg border border-danger/30 bg-danger-soft text-sm text-danger"
+            >
+              {error}
+            </p>
+          )}
+
+          <form className="flex flex-col gap-4 mt-6" onSubmit={handleSubmit}>
+            {/* The label had no htmlFor even though the input carried an id, so
+                clicking it did nothing. Field wires them together. */}
+            <Input
+              id="login-email"
+              label="Email"
+              type="email"
+              placeholder="you@yourgym.com"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              autoComplete="username"
+              required
+            />
+
+            <Field label="Password" htmlFor="login-password" required>
+              <div className="relative">
+                <input
+                  id="login-password"
+                  type={showPass ? 'text' : 'password'}
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  autoComplete="current-password"
+                  required
+                  className="w-full bg-surface-3 border border-line rounded-lg px-3 py-2.5 pr-11 text-sm text-heading placeholder:text-muted/70 transition-colors hover:border-line-hover focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPass((v) => !v)}
+                  aria-label={showPass ? 'Hide password' : 'Show password'}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-1.5 rounded-md text-muted transition-colors hover:text-body focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                >
+                  {showPass ? <EyeOff className="size-4" aria-hidden="true" /> : <Eye className="size-4" aria-hidden="true" />}
+                </button>
+              </div>
+            </Field>
+
+            <div className="flex justify-end -mt-1">
+              <Link
+                to="/forgot-password"
+                className="text-xs font-semibold text-accent hover:underline rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+              >
+                Forgot password?
+              </Link>
+            </div>
+
+            <Button type="submit" size="lg" block loading={loading} className="mt-2">
+              <LogIn className="size-4" aria-hidden="true" />
+              Sign in
+            </Button>
+          </form>
         </div>
       </div>
     </div>

@@ -1,82 +1,139 @@
-import { ShieldCheck, ShieldAlert, Zap, Users, Building2, CreditCard, PieChart, ArrowLeft, MessageSquare, Edit, ExternalLink, Trash2, DollarSign, Plus, Activity } from 'lucide-react';
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import {
+  Zap, Users, Building2, CreditCard, MessageSquare, Pencil, ExternalLink,
+  Trash2, DollarSign, Plus, Activity, PieChart, Sparkles, Power, PowerOff,
+} from 'lucide-react';
 import api from '../../lib/api';
-import { formatPKR, formatDate, calculateHealthScore } from '../../lib/utils';
+import { formatDate, calculateHealthScore } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
+import { useConfirm } from '../../contexts/ConfirmContext';
 import { useAuth } from '../../contexts/AuthContext';
-import { StateView } from '../../components/common/StateView';
-import { ModernLoader } from '../../components/common/ModernLoader';
-import '../../styles/admin.css';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, BackLink, Card, CardHeader, Button, Badge, Tabs, Modal,
+  Input, Select, Textarea, StatCard, Skeleton, ErrorState, EmptyState,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
+
+const todayStr = () => new Date().toISOString().split('T')[0];
+
+const PAYMENT_KIND_LABEL = {
+  subscription: 'Subscription',
+  setup: 'Setup fee',
+  refund: 'Refund',
+  adjustment: 'Adjustment',
+};
+
+const BILLING_STATUS = {
+  trialing: { variant: 'info', label: 'On trial' },
+  active: { variant: 'success', label: 'Active' },
+  past_due: { variant: 'warning', label: 'Past due' },
+  suspended: { variant: 'danger', label: 'Suspended' },
+  cancelled: { variant: 'neutral', label: 'Cancelled' },
+};
+
+const TABS = [
+  { key: 'overview', label: 'Overview' },
+  { key: 'payments', label: 'Payments' },
+  { key: 'notes', label: 'Notes' },
+];
+
+function scoreTone(score) {
+  if (score >= 60) return 'text-success';
+  if (score >= 30) return 'text-warning';
+  return 'text-danger';
+}
+
+function scoreBar(score) {
+  if (score >= 60) return 'bg-success';
+  if (score >= 30) return 'bg-warning';
+  return 'bg-danger';
+}
 
 export default function AdminGymDetailPage() {
+  const money = useMoney();
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
+  const confirm = useConfirm();
   const { switchSession } = useAuth();
-  
+
   const [gym, setGym] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [notes, setNotes] = useState([]);
   const [payments, setPayments] = useState([]);
   const [newNote, setNewNote] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+
   const [showEditModal, setShowEditModal] = useState(false);
   const [editData, setEditData] = useState({});
   const [showPaymentModal, setShowPaymentModal] = useState(false);
-  const [paymentForm, setPaymentForm] = useState({ amount: '', type: 'RECURRING', date: new Date().toISOString().split('T')[0] });
+  const [paymentForm, setPaymentForm] = useState({ amount: '', kind: 'subscription', paid_at: todayStr() });
   const [editingPaymentId, setEditingPaymentId] = useState(null);
   const [showRenewModal, setShowRenewModal] = useState(false);
+  const [showConvertModal, setShowConvertModal] = useState(false);
+  const [convertForm, setConvertForm] = useState({ plan_code: '', months: '1', amount: '' });
+  const [plans, setPlans] = useState([]);
   const [renewalForm, setRenewalForm] = useState({ months: '1', customDays: '', amount: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [activeTab, setActiveTab] = useState('overview');
 
   useEffect(() => {
     if (gym?.default_monthly_fee) {
-      setRenewalForm(prev => ({ ...prev, amount: String(gym.default_monthly_fee) }));
+      setRenewalForm((prev) => ({ ...prev, amount: String(gym.default_monthly_fee) }));
     }
   }, [gym]);
 
-  const todayStr = () => new Date().toISOString().split('T')[0];
-
   useEffect(() => {
-    async function fetchDetails() {
+    (async () => {
       setLoading(true);
       try {
         const [gRes, nRes, pRes] = await Promise.all([
           api.get(`/admin/gyms/${id}`),
           api.get(`/admin/gyms/${id}/notes`),
-          api.get(`/admin/gyms/${id}/payments`)
+          api.get(`/admin/gyms/${id}/payments`),
         ]);
         setGym(gRes.data.data);
-        setEditData(gRes.data.data);
-        setNotes(nRes.data.data);
-        setPayments(pRes.data.data);
+        setEditData({ ...gRes.data.data, extend_duration: 'none', extend_days: '' });
+        setNotes(nRes.data.data || []);
+        setPayments(pRes.data.data || []);
       } catch (err) {
-        toast.error('Gym details unavailable');
         console.error(err);
+        setNotFound(true);
       } finally {
         setLoading(false);
       }
-    }
-    fetchDetails();
+    })();
   }, [id]);
+
+  useEffect(() => {
+    api.get('/admin/plans')
+      .then((res) => setPlans((res.data.data || []).filter((pl) => pl.is_active && Number(pl.price) > 0)))
+      .catch(() => setPlans([]));
+  }, []);
+
+  const refreshGym = async () => {
+    const res = await api.get(`/admin/gyms/${id}`);
+    setGym(res.data.data);
+  };
 
   const handleProxyLogin = async () => {
     try {
       const res = await api.post(`/admin/gyms/${id}/login`);
       if (res.data.success) {
         await switchSession(res.data);
-        toast.success(`Switched to ${gym.gym_name}`);
-        // Client-side navigation to maintain background seed process
-        navigate('/dashboard'); 
+        toast.success(`Signed in as ${gym.gym_name}.`);
+        navigate('/dashboard');
       }
     } catch (err) {
-      toast.error('Failed to proxy login');
+      toast.error(err.response?.data?.message || 'Could not sign in as this gym.');
     }
   };
 
   const handleUpdateGym = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       const payload = {
         gym_name: editData.gym_name,
@@ -86,43 +143,57 @@ export default function AdminGymDetailPage() {
         default_monthly_fee: editData.default_monthly_fee,
         email: editData.email,
         plan_type: editData.plan_type,
-        subscription_ends_at: editData.subscription_ends_at
+        subscription_ends_at: editData.subscription_ends_at,
       };
-      
-      if (editData.extend_duration && editData.extend_duration !== 'none') {
-        const now = new Date();
-        const currentEnd = gym.subscription_ends_at ? new Date(gym.subscription_ends_at) : now;
-        const startBasis = currentEnd > now ? currentEnd : now;
-        const newEnd = new Date(startBasis);
-        if (editData.extend_duration === 'custom') {
-          newEnd.setDate(newEnd.getDate() + Number(editData.extend_days || 0));
-        } else {
-          newEnd.setMonth(newEnd.getMonth() + Number(editData.extend_duration));
-        }
-        payload.subscription_ends_at = newEnd.toISOString();
-      }
 
       if (editData.new_password) payload.new_password = editData.new_password;
-      
-      await api.patch(`/admin/gyms/${id}`, payload);
-      
-      if (editData.add_payment && Number(editData.add_payment) > 0) {
-        await api.post(`/admin/gyms/${id}/payments`, { amount: Number(editData.add_payment) });
-        const pRes = await api.get(`/admin/gyms/${id}/payments`);
-        setPayments(pRes.data.data);
-      }
 
-      toast.success('Settings updated');
+      await api.patch(`/admin/gyms/${id}`, payload);
+
+      // Extending goes through the lifecycle endpoint so the period arithmetic
+      // stays on the server and the change lands in the audit trail. This form
+      // used to recompute the end date itself and PATCH it straight in, which
+      // both duplicated the logic and left no record of who changed it.
+      if (editData.extend_duration && editData.extend_duration !== 'none') {
+        await api.post(`/admin/gyms/${id}/renew`, {
+          amount: 0,
+          ...(editData.extend_duration === 'custom'
+            ? { customDays: Number(editData.extend_days) }
+            : { months: Number(editData.extend_duration) }),
+          note: 'Extended from the edit form',
+        });
+      }
+      toast.success('Gym updated.');
       setShowEditModal(false);
-      setEditData(prev => ({ ...prev, add_payment: '', extend_duration: 'none', extend_days: '' }));
-      const res = await api.get(`/admin/gyms/${id}`);
-      setGym(res.data.data);
+      setEditData((prev) => ({ ...prev, new_password: '', extend_duration: 'none', extend_days: '' }));
+      await refreshGym();
     } catch (err) {
-      toast.error('Update failed');
+      toast.error(err.response?.data?.message || 'Could not update this gym.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
+  const runLifecycle = async (action, body, successMessage) => {
+    try {
+      await api.post(`/admin/gyms/${id}/${action}`, body);
+      toast.success(successMessage);
+      await refreshGym();
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'That did not work.');
+    }
+  };
 
+  const handleSuspend = async () => {
+    const ok = await confirm({
+      title: `Suspend ${gym.gym_name}?`,
+      message: 'The owner and their staff will be signed out and unable to log in until reactivated.',
+      confirmText: 'Suspend',
+    });
+    if (ok) await runLifecycle('suspend', {}, 'Gym suspended.');
+  };
+
+  const handleReactivate = () => runLifecycle('reactivate', {}, 'Gym reactivated.');
 
   const handleAddNote = async () => {
     if (!newNote.trim()) return;
@@ -130,51 +201,61 @@ export default function AdminGymDetailPage() {
       const res = await api.post(`/admin/gyms/${id}/notes`, { text: newNote.trim() });
       setNotes([res.data.data, ...notes]);
       setNewNote('');
-      toast.success('Note pinned');
+      toast.success('Note added.');
     } catch (err) {
-      toast.error('Failed to pin note');
+      toast.error(err.response?.data?.message || 'Could not add the note.');
     }
   };
 
   const handleLogPayment = async (e) => {
     e.preventDefault();
+    setIsSubmitting(true);
     try {
       if (editingPaymentId) {
         await api.patch(`/admin/gyms/${id}/payments/${editingPaymentId}`, paymentForm);
-        toast.success('Payment updated');
+        toast.success('Payment updated.');
       } else {
         await api.post(`/admin/gyms/${id}/payments`, paymentForm);
-        toast.success('Payment recorded');
+        toast.success('Payment recorded.');
       }
       const pRes = await api.get(`/admin/gyms/${id}/payments`);
-      setPayments(pRes.data.data);
-      const gRes = await api.get(`/admin/gyms/${id}`);
-      setGym(gRes.data.data);
+      setPayments(pRes.data.data || []);
+      await refreshGym();
       setShowPaymentModal(false);
-      setPaymentForm({ amount: '', type: 'RECURRING', date: todayStr() });
+      setPaymentForm({ amount: '', kind: 'subscription', paid_at: todayStr() });
       setEditingPaymentId(null);
     } catch (err) {
-      toast.error('Transaction failed');
+      toast.error(err.response?.data?.message || 'Could not record this payment.');
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
   const openEditPayment = (p) => {
-    const payload = JSON.parse(p.text);
-    setPaymentForm({ amount: payload.amount, type: payload.type || 'RECURRING', date: p.date.split('T')[0] });
+    setPaymentForm({
+      amount: p.amount ?? '',
+      kind: p.kind || 'subscription',
+      paid_at: String(p.paid_at).split('T')[0],
+    });
     setEditingPaymentId(p.id);
     setShowPaymentModal(true);
   };
 
   const handleDeletePayment = async (noteId) => {
-    if (!window.confirm("Void this transaction?")) return;
+    const ok = await confirm({
+      title: 'Void this transaction?',
+      message: 'The payment record will be permanently removed from the platform ledger.',
+      confirmText: 'Void',
+    });
+    if (!ok) return;
+
     try {
       await api.delete(`/admin/gyms/${id}/payments/${noteId}`);
-      setPayments(payments.filter(p => p.id !== noteId));
-      const gRes = await api.get(`/admin/gyms/${id}`);
-      setGym(gRes.data.data);
+      setPayments((prev) => prev.filter((p) => p.id !== noteId));
+      await refreshGym();
       toast.success('Transaction voided.');
-    } catch(err) {
-      toast.error('Failed to void');
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not void this transaction.');
     }
   };
 
@@ -182,344 +263,560 @@ export default function AdminGymDetailPage() {
     e.preventDefault();
     setIsSubmitting(true);
     try {
-      const payload = {
+      await api.post(`/admin/gyms/${id}/renew`, {
         amount: Number(renewalForm.amount),
         months: renewalForm.months === 'custom' ? 0 : Number(renewalForm.months),
-        customDays: renewalForm.months === 'custom' ? Number(renewalForm.customDays) : 0
-      };
-      await api.post(`/admin/gyms/${id}/renew`, payload);
-      toast.success('Subscription renewed!');
+        customDays: renewalForm.months === 'custom' ? Number(renewalForm.customDays) : 0,
+      });
+      toast.success('Subscription renewed.');
       setShowRenewModal(false);
       const [gRes, pRes] = await Promise.all([
         api.get(`/admin/gyms/${id}`),
-        api.get(`/admin/gyms/${id}/payments`)
+        api.get(`/admin/gyms/${id}/payments`),
       ]);
       setGym(gRes.data.data);
-      setPayments(pRes.data.data);
+      setPayments(pRes.data.data || []);
     } catch (err) {
-      toast.error('Renewal failed');
+      toast.error(err.response?.data?.message || 'Could not renew this subscription.');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  if (loading) return (
-    <div className="admin-container" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <ModernLoader type="morph" text="Loading Gym Data..." />
-    </div>
-  );
+  if (loading) {
+    return (
+      <Page>
+        <Skeleton className="h-9 w-56 mb-6" />
+        <Skeleton className="h-28 mb-4" />
+        <Skeleton className="h-80" />
+      </Page>
+    );
+  }
 
-  if (!gym) return <div className="admin-container"><p>Gym not found.</p></div>;
+  if (notFound || !gym) {
+    return (
+      <Page>
+        <ErrorState
+          title="Gym not found"
+          description="It may have been deleted."
+          onRetry={() => navigate('/admin/gyms')}
+        />
+      </Page>
+    );
+  }
 
   const health = calculateHealthScore(gym);
-  const hColor = health <= 30 ? 'var(--status-danger)' : health <= 60 ? 'var(--status-warning)' : 'var(--status-active)';
+  const isExpired = gym.subscription_ends_at && new Date(gym.subscription_ends_at) < new Date();
+  const status = BILLING_STATUS[gym.billing_status] ?? (gym.is_active ? BILLING_STATUS.active : BILLING_STATUS.suspended);
+  const onTrial = gym.trial_ends_at && new Date(gym.trial_ends_at) > new Date();
+  const trialDaysLeft = onTrial
+    ? Math.ceil((new Date(gym.trial_ends_at) - new Date()) / 86400000)
+    : null;
 
-  const kpis = [
-    { label: 'Gym Health', value: `${health}/100`, icon: Activity, color: hColor, sub: health > 70 ? 'Running Well' : 'Needs Help' },
-    { label: 'Total Members', value: gym.members?.[0]?.count || 0, icon: Users, color: 'var(--accent-primary)', sub: 'Active in system' },
-    { label: 'This Month Rev', value: formatPKR(gym.revenue_this_month || 0), icon: CreditCard, color: 'var(--status-active)', sub: 'Collected by gym' },
-    { label: 'Current Plan', value: gym.plan_type.toUpperCase(), icon: Zap, color: '#fbbf24', sub: gym.subscription_ends_at ? `Expires: ${formatDate(gym.subscription_ends_at)}` : 'No Expiry' },
+  const reviewRows = [
+    {
+      label: 'System active (30%)',
+      score: gym.last_login_at
+        ? Math.max(0, 100 - Math.ceil((new Date() - new Date(gym.last_login_at)) / 86400000))
+        : 0,
+    },
+    { label: 'New members (25%)', score: gym.members_added_this_month > 0 ? 100 : 0 },
+    { label: 'Payment logs (25%)', score: gym.payments_this_month > 0 ? 100 : 0 },
+    {
+      label: 'Profile completeness (20%)',
+      score:
+        ([gym.gym_name, gym.phone, gym.address, gym.default_monthly_fee].filter(Boolean).length / 4) * 100,
+    },
+  ];
+
+  const details = [
+    { label: 'Email', value: gym.email || '—' },
+    { label: 'Phone', value: gym.phone || '—' },
+    { label: 'Members', value: gym.members?.[0]?.count || 0 },
+    { label: 'Staff', value: gym.staff?.[0]?.count || 0 },
+    { label: 'Revenue this month', value: money(gym.revenue_this_month || 0) },
+    { label: 'Subscription ends', value: gym.subscription_ends_at ? formatDate(gym.subscription_ends_at) : '—' },
+    { label: 'Joined', value: formatDate(gym.created_at) },
+    { label: 'Last login', value: formatDate(gym.last_login_at) },
   ];
 
   return (
-    <div className="admin-container">
-      {/* ── Header ─── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <button className="btn btn-icon btn-secondary" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
-        <div style={{ flex: 1 }}>
-          <h1 className="page-title">{gym.gym_name}</h1>
-          <p className="page-subtitle">{gym.city} • {gym.owner_name}</p>
-        </div>
-        <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-          <span className={`badge ${gym.is_active ? 'badge-active' : 'badge-danger'}`} style={{ padding: '8px 16px', fontSize: 'var(--font-sm)', fontWeight: 800 }}>
-             {gym.is_active ? 'ACTIVE' : 'SUSPENDED'}
-          </span>
-        </div>
-      </div>
-
-      {/* ── KPI Scoreboard ─── */}
-      <div className="stats-grid" style={{ marginBottom: 'var(--space-xl)' }}>
-        {kpis.map((k, i) => (
-          <div key={i} className="stat-card" style={{ '--stat-color': k.color }}>
-            <div className="stat-icon" style={{ background: k.color + '15' }}>
-              <k.icon size={20} style={{ color: k.color }} />
-            </div>
-            <div className="stat-value" style={{ color: k.color }}>{k.value}</div>
-            <div className="stat-label">{k.label}</div>
-            <div className="stat-pct">{k.sub}</div>
-          </div>
-        ))}
-      </div>
-
-      {/* ── Action Bar ─── */}
-      <div className="card" style={{ marginBottom: 'var(--space-xl)', padding: 'var(--space-md)', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-sm)', alignItems: 'center' }}>
-        <button className="btn btn-primary btn-sm" onClick={handleProxyLogin}>
-          <ExternalLink size={16} style={{ marginRight: 6 }} /> Login to Gym
-        </button>
-        <button className="btn btn-secondary btn-sm" onClick={() => setShowEditModal(true)}>
-          <Edit size={16} style={{ marginRight: 6 }} /> Edit Info
-        </button>
-        {(!gym.is_active || (gym.subscription_ends_at && new Date(gym.subscription_ends_at) < new Date())) && (
-          <button className="btn btn-success btn-sm" onClick={() => setShowRenewModal(true)}>
-            <DollarSign size={16} style={{ marginRight: 6 }} /> Renew Now
-          </button>
-        )}
-      </div>
-
-      {/* ── Tabs ─── */}
-      <div className="filter-tabs" style={{ marginBottom: 'var(--space-md)' }}>
-        {[
-          { key: 'overview', label: 'Gym Review', icon: PieChart },
-          { key: 'payments', label: 'Payments', icon: CreditCard },
-          { key: 'notes', label: 'Notes', icon: MessageSquare },
-        ].map(t => (
-          <button key={t.key} className={`filter-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
-             <t.icon size={14} style={{ marginRight: 6 }} /> {t.label}
-          </button>
-        ))}
-      </div>
-
-      {/* ── Tab Content ─── */}
-      <div className="admin-tab-content">
-        {activeTab === 'overview' && (
-          <div className="gym-stack-layout" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-xl)' }}>
-            
-            <div className="admin-section">
-              <h3 className="section-title">Performance Review</h3>
-              <div className="card">
-                {[
-                  { label: 'System Active (30%)', score: gym.last_login_at ? Math.max(0, 100 - Math.ceil((new Date() - new Date(gym.last_login_at)) / 86400000)) : 0 },
-                  { label: 'New Members (25%)', score: gym.members_added_this_month > 0 ? 100 : 0 },
-                  { label: 'Payment Logs (25%)', score: gym.payments_this_month > 0 ? 100 : 0 },
-                  { label: 'Profile Info (20%)', score: [gym.gym_name, gym.phone, gym.address, gym.default_monthly_fee].filter(Boolean).length / 4 * 100 },
-                ].map((item, i) => (
-                  <div key={i} style={{ padding: '16px 0', borderBottom: i < 3 ? '1px solid var(--border-color)' : 'none' }}>
-                    <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 8 }}>
-                      <span style={{ fontSize: 13, fontWeight: 700 }}>{item.label}</span>
-                      <span style={{ fontSize: 13, fontWeight: 800, color: item.score >= 60 ? 'var(--status-active)' : item.score >= 30 ? 'var(--status-warning)' : 'var(--status-danger)' }}>{Math.round(item.score)}%</span>
-                    </div>
-                    <div style={{ height: 6, background: 'var(--bg-tertiary)', borderRadius: 10 }}>
-                      <div style={{ height: '100%', width: `${Math.min(100, item.score)}%`, background: item.score >= 60 ? 'var(--status-active)' : item.score >= 30 ? 'var(--status-warning)' : 'var(--status-danger)', borderRadius: 10, transition: 'width 0.5s' }}></div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="admin-section">
-              <h3 className="section-title">Gym Information</h3>
-              <div className="gym-detail-grid">
-                {[
-                  { label: 'Email Address', value: gym.email || 'N/A' },
-                  { label: 'Contact Phone', value: gym.phone },
-                  { label: 'Active Members', value: gym.members?.[0]?.count || 0 },
-                  { label: 'Active Staff', value: gym.staff?.[0]?.count || 0 },
-                  { label: 'Revenue (Month)', value: formatPKR(gym.revenue_this_month || 0) },
-                  { label: 'Expiry Date', value: gym.subscription_ends_at ? formatDate(gym.subscription_ends_at) : 'N/A' },
-                ].map((d, i) => (
-                  <div key={i} className="gym-detail-card">
-                    <div className="label">{d.label}</div>
-                    <div className="value" style={{ fontSize: 14 }}>{d.value}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            <div className="admin-section">
-              <h3 className="section-title">Registration Details</h3>
-              <div className="card" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 'var(--space-md)' }}>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Joined On</div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatDate(gym.created_at)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Last Login</div>
-                  <div style={{ fontWeight: 700, fontSize: 14 }}>{formatDate(gym.last_login_at)}</div>
-                </div>
-                <div>
-                  <div style={{ fontSize: 10, fontWeight: 800, color: 'var(--text-muted)', textTransform: 'uppercase' }}>Current Plan</div>
-                  <div style={{ fontWeight: 800, fontSize: 14, color: 'var(--accent-primary)' }}>{gym.plan_type.toUpperCase()}</div>
-                </div>
-              </div>
-            </div>
-
-          </div>
-        )}
-
-        {activeTab === 'payments' && (
-          <div className="admin-section">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 'var(--space-md)' }}>
-              <h3 className="section-title">Payment History</h3>
-              <button className="btn btn-sm btn-primary" onClick={() => { setEditingPaymentId(null); setPaymentForm({ amount: '', type: 'RECURRING', date: todayStr() }); setShowPaymentModal(true); }}>
-                <Plus size={14} style={{ marginRight: 4 }} /> Add New Payment
-              </button>
-            </div>
-            {(!payments || payments.length === 0) ? (
-              <StateView type="empty" title="No Payments Yet" description="No setup fees or subscription payments found for this gym." />
-            ) : (
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-sm)' }}>
-                {payments.map(p => {
-                  let payload = { amount: 0, type: 'RECURRING' };
-                  try { payload = JSON.parse(p.text); } catch(e) {}
-                  return (
-                    <div key={p.id} className="payment-card" style={{ background: 'var(--bg-secondary)', border: '1px solid var(--border-color)' }}>
-                      <div className="pay-icon" style={{ background: payload.type === 'SETUP' ? '#fef3c7' : '#dcfce7', color: payload.type === 'SETUP' ? '#92400e' : '#166534' }}>
-                         {payload.type === 'SETUP' ? <Building2 size={18} /> : <CreditCard size={18} />}
-                      </div>
-                      <div className="pay-details">
-                        <h4 style={{ fontSize: 15 }}>{payload.type === 'SETUP' ? 'Setup Fee' : 'Monthly Fee'}</h4>
-                        <p style={{ fontSize: 11 }}>{formatDate(p.date)}</p>
-                      </div>
-                      <div className="pay-right">
-                        <div className="amount" style={{ color: 'var(--status-active)', fontWeight: 800 }}>{formatPKR(payload.amount)}</div>
-                        <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
-                          <button className="btn btn-icon btn-sm" onClick={() => openEditPayment(p)} title="Edit"><Edit size={14} /></button>
-                          <button className="btn btn-icon btn-sm" onClick={() => handleDeletePayment(p.id)} style={{ color: 'var(--status-danger)' }} title="Delete"><Trash2 size={14} /></button>
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
+    <Page>
+      <PageHeader
+        title={gym.gym_name}
+        subtitle={[gym.city, gym.owner_name].filter(Boolean).join(' · ')}
+        back={<BackLink to="/admin/gyms" label="All gyms" />}
+        actions={
+          <div className="flex items-center gap-2">
+            {trialDaysLeft !== null && trialDaysLeft >= 0 && (
+              <Badge variant="info">
+                {trialDaysLeft} trial day{trialDaysLeft === 1 ? '' : 's'} left
+              </Badge>
             )}
+            <Badge variant={status.variant} dot>{status.label}</Badge>
           </div>
+        }
+      />
+
+      <div className="grid grid-cols-2 xl:grid-cols-4 gap-3 mb-5">
+        <StatCard
+          label="Gym health"
+          value={`${health}/100`}
+          tone={health <= 30 ? 'danger' : health <= 60 ? 'warning' : 'success'}
+          icon={Activity}
+          deltaLabel={health > 70 ? 'Running well' : 'Needs attention'}
+        />
+        <StatCard label="Members" value={gym.members?.[0]?.count || 0} tone="accent" icon={Users} />
+        <StatCard
+          label="Revenue this month"
+          value={money(gym.revenue_this_month || 0)}
+          tone="success"
+          icon={CreditCard}
+        />
+        <StatCard
+          label="Plan"
+          value={String(gym.plan_type || '').toUpperCase()}
+          tone="warning"
+          icon={Zap}
+          deltaLabel={gym.subscription_ends_at ? `Ends ${formatDate(gym.subscription_ends_at)}` : 'No expiry'}
+        />
+      </div>
+
+      <Card className="flex flex-wrap items-center gap-2 mb-5">
+        <Button size="sm" onClick={handleProxyLogin}>
+          <ExternalLink className="size-4" aria-hidden="true" />
+          Sign in as this gym
+        </Button>
+        <Button variant="secondary" size="sm" onClick={() => setShowEditModal(true)}>
+          <Pencil className="size-4" aria-hidden="true" />
+          Edit details
+        </Button>
+        <Button variant="success" size="sm" onClick={() => setShowRenewModal(true)}>
+          <DollarSign className="size-4" aria-hidden="true" />
+          {isExpired || !gym.is_active ? 'Renew now' : 'Extend'}
+        </Button>
+
+        {onTrial && (
+          <Button variant="outline" size="sm" onClick={() => setShowConvertModal(true)}>
+            <Sparkles className="size-4" aria-hidden="true" />
+            Convert to paid
+          </Button>
         )}
 
-        {activeTab === 'notes' && (
-          <div className="admin-section">
-            <h3 className="section-title">Notes & Support Log</h3>
-            <div className="card" style={{ marginBottom: 'var(--space-lg)', background: 'var(--bg-secondary)' }}>
-              <textarea className="form-textarea" style={{ minHeight: 80, border: 'none', background: 'transparent' }} placeholder="Add a new note about this gym..." value={newNote} onChange={e => setNewNote(e.target.value)} />
-              <div style={{ display: 'flex', justifyContent: 'flex-end', padding: '10px 0', borderTop: '1px solid var(--border-color)' }}>
-                <button className="btn btn-primary btn-sm" onClick={handleAddNote}>Save Note</button>
-              </div>
-            </div>
-            <div className="notes-list">
-              {notes.length === 0 ? (
-                <div style={{ textAlign: 'center', padding: '40px', color: 'var(--text-muted)' }}>No notes found.</div>
-              ) : (
-                notes.map(n => (
-                  <div key={n.id} className="note-card" style={{ background: 'var(--bg-secondary)', borderLeft: '4px solid var(--accent-primary)' }}>
-                    <div className="note-header" style={{ marginBottom: 4 }}>
-                      <span style={{ fontWeight: 800, fontSize: 11 }}>{n.admin?.toUpperCase()}</span>
-                      <span style={{ fontSize: 11 }}>{formatDate(n.date)}</span>
-                    </div>
-                    <div className="note-text" style={{ fontSize: 14 }}>{n.text}</div>
+        <div className="grow" />
+
+        {gym.is_active ? (
+          <Button variant="danger-soft" size="sm" onClick={handleSuspend}>
+            <PowerOff className="size-4" aria-hidden="true" />
+            Suspend
+          </Button>
+        ) : (
+          <Button variant="secondary" size="sm" onClick={handleReactivate}>
+            <Power className="size-4" aria-hidden="true" />
+            Reactivate
+          </Button>
+        )}
+      </Card>
+
+      <Tabs items={TABS} value={activeTab} onChange={setActiveTab} className="mb-4" />
+
+      {activeTab === 'overview' && (
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-4 items-start">
+          <Card>
+            <CardHeader title="Performance review" subtitle="How the health score is calculated" />
+            <ul className="flex flex-col gap-3.5">
+              {reviewRows.map((item) => (
+                <li key={item.label}>
+                  <div className="flex justify-between items-baseline gap-2 mb-1.5">
+                    <span className="text-sm font-medium text-body">{item.label}</span>
+                    <span className={cn('text-sm font-bold tabular-nums', scoreTone(item.score))}>
+                      {Math.round(item.score)}%
+                    </span>
                   </div>
-                ))
+                  <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                    <div
+                      className={cn('h-full rounded-full transition-[width] duration-500', scoreBar(item.score))}
+                      style={{ width: `${Math.min(100, item.score)}%` }}
+                    />
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </Card>
+
+          <Card>
+            <CardHeader title="Gym information" />
+            <dl className="grid grid-cols-2 gap-4">
+              {details.map((d) => (
+                <div key={d.label} className="min-w-0">
+                  <dt className="text-xs text-muted">{d.label}</dt>
+                  <dd className="text-sm font-semibold text-heading mt-0.5 truncate">{d.value}</dd>
+                </div>
+              ))}
+            </dl>
+          </Card>
+        </div>
+      )}
+
+      {activeTab === 'payments' && (
+        <Card>
+          <CardHeader
+            title="Platform payments"
+            subtitle="Setup fees and subscription income from this gym"
+            action={
+              <Button
+                size="sm"
+                onClick={() => {
+                  setEditingPaymentId(null);
+                  setPaymentForm({ amount: '', kind: 'subscription', paid_at: todayStr() });
+                  setShowPaymentModal(true);
+                }}
+              >
+                <Plus className="size-4" aria-hidden="true" />
+                Add
+              </Button>
+            }
+          />
+          {payments.length === 0 ? (
+            <EmptyState
+              icon={PieChart}
+              title="No payments yet"
+              description="Setup fees and subscription payments will appear here."
+              className="py-8"
+            />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {payments.map((p) => {
+                const isSetup = p.kind === 'setup';
+                return (
+                  <li
+                    key={p.id}
+                    className="flex items-center gap-3 p-3 rounded-lg border border-line bg-surface-3/50"
+                  >
+                    <span
+                      className={cn(
+                        'flex items-center justify-center size-10 rounded-xl shrink-0',
+                        isSetup ? 'bg-warning-soft text-warning' : 'bg-success-soft text-success'
+                      )}
+                    >
+                      {isSetup ? (
+                        <Building2 className="size-5" aria-hidden="true" />
+                      ) : (
+                        <CreditCard className="size-5" aria-hidden="true" />
+                      )}
+                    </span>
+                    <span className="grow min-w-0">
+                      <span className="block text-sm font-semibold text-heading">
+                        {PAYMENT_KIND_LABEL[p.kind] ?? p.kind}
+                      </span>
+                      <span className="block text-xs text-muted">{formatDate(p.paid_at)}</span>
+                    </span>
+                    <span className="font-bold text-success tabular-nums shrink-0">
+                      {money(p.amount)}
+                    </span>
+                    <Button variant="ghost" size="icon-sm" onClick={() => openEditPayment(p)} aria-label="Edit payment">
+                      <Pencil className="size-4" aria-hidden="true" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-muted hover:text-danger hover:bg-danger-soft"
+                      onClick={() => handleDeletePayment(p.id)}
+                      aria-label="Void payment"
+                    >
+                      <Trash2 className="size-4" aria-hidden="true" />
+                    </Button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      {activeTab === 'notes' && (
+        <Card>
+          <CardHeader title="Notes and support log" />
+          <div className="flex flex-col gap-2 mb-5">
+            <Textarea
+              aria-label="New note"
+              rows={3}
+              placeholder="Add a note about this gym…"
+              value={newNote}
+              onChange={(e) => setNewNote(e.target.value)}
+            />
+            <Button size="sm" className="self-end" disabled={!newNote.trim()} onClick={handleAddNote}>
+              Save note
+            </Button>
+          </div>
+
+          {notes.length === 0 ? (
+            <EmptyState icon={MessageSquare} title="No notes yet" className="py-8" />
+          ) : (
+            <ul className="flex flex-col gap-2">
+              {notes.map((n) => (
+                <li key={n.id} className="p-3 rounded-lg border-l-4 border-l-accent border border-line bg-surface-3/50">
+                  <div className="flex items-baseline justify-between gap-2 mb-1">
+                    <span className="text-[0.6875rem] font-bold uppercase tracking-wide text-accent">
+                      {n.admin}
+                    </span>
+                    <span className="text-xs text-muted">{formatDate(n.date)}</span>
+                  </div>
+                  <p className="text-sm text-body">{n.text}</p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      )}
+
+      <Modal
+        open={showEditModal}
+        onClose={() => setShowEditModal(false)}
+        title="Edit gym"
+        size="lg"
+      >
+        <form className="flex flex-col gap-4" onSubmit={handleUpdateGym}>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <Input label="Gym name" required value={editData.gym_name || ''}
+              onChange={(e) => setEditData({ ...editData, gym_name: e.target.value })} />
+            <Input label="Owner name" required value={editData.owner_name || ''}
+              onChange={(e) => setEditData({ ...editData, owner_name: e.target.value })} />
+            <Input label="Phone" required type="tel" value={editData.phone || ''}
+              onChange={(e) => setEditData({ ...editData, phone: e.target.value })} />
+            <Input label="Email (login)" required type="email" value={editData.email || ''}
+              onChange={(e) => setEditData({ ...editData, email: e.target.value })} />
+            <Input label="City" value={editData.city || ''}
+              onChange={(e) => setEditData({ ...editData, city: e.target.value })} />
+            <Select label="Plan" value={editData.plan_type || 'free'}
+              onChange={(e) => setEditData({ ...editData, plan_type: e.target.value })}>
+              <option value="free">Free</option>
+              <option value="basic">Basic</option>
+              <option value="pro">Pro</option>
+            </Select>
+          </div>
+
+          {/*
+            The extend-subscription controls: handleUpdateGym has always read
+            `extend_duration` and `extend_days`, but no input ever set them, so
+            that whole branch was unreachable.
+          */}
+          <div className="pt-4 border-t border-line">
+            <p className="text-xs font-bold uppercase tracking-wide text-muted mb-3">Extend subscription</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <Select
+                label="Extend by"
+                value={editData.extend_duration || 'none'}
+                onChange={(e) => setEditData({ ...editData, extend_duration: e.target.value })}
+              >
+                <option value="none">Don't extend</option>
+                <option value="1">1 month</option>
+                <option value="3">3 months</option>
+                <option value="6">6 months</option>
+                <option value="12">1 year</option>
+                <option value="custom">Custom days</option>
+              </Select>
+              {editData.extend_duration === 'custom' && (
+                <Input
+                  label="Days to add"
+                  type="number"
+                  min="1"
+                  value={editData.extend_days || ''}
+                  onChange={(e) => setEditData({ ...editData, extend_days: e.target.value })}
+                />
               )}
             </div>
           </div>
-        )}
-      </div>
 
-      {/* ── Modals (Keep Existing Logic) ─── */}
-      {showEditModal && (
-        <div className="modal-backdrop" onClick={() => setShowEditModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginBottom: 'var(--space-md)' }}>Update Gym Records</h2>
-            <form onSubmit={handleUpdateGym}>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Gym Name</label>
-                  <input required className="form-input" value={editData.gym_name} onChange={e => setEditData({...editData, gym_name: e.target.value})} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Owner Name</label>
-                  <input required className="form-input" value={editData.owner_name} onChange={e => setEditData({...editData, owner_name: e.target.value})} />
-                </div>
-              </div>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">Phone</label>
-                  <input required className="form-input" value={editData.phone} onChange={e => setEditData({...editData, phone: e.target.value})} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Email (ID)</label>
-                  <input required type="email" className="form-input" value={editData.email} onChange={e => setEditData({...editData, email: e.target.value})} />
-                </div>
-              </div>
-              <div className="grid-2">
-                <div className="form-group">
-                  <label className="form-label">City</label>
-                  <input required className="form-input" value={editData.city} onChange={e => setEditData({...editData, city: e.target.value})} />
-                </div>
-                <div className="form-group">
-                  <label className="form-label">Plan Type</label>
-                  <select className="form-select" value={editData.plan_type} onChange={e => setEditData({...editData, plan_type: e.target.value})}>
-                    <option value="free">FREE</option>
-                    <option value="basic">BASIC</option>
-                    <option value="pro">PRO</option>
-                  </select>
-                </div>
-              </div>
-              <div className="divider"></div>
-              <p style={{ fontSize: 11, fontWeight: 800, color: 'var(--text-muted)' }}>SECURITY SECURITY SECURITY</p>
-              <div className="form-group">
-                <label className="form-label">Reset Password</label>
-                <input className="form-input" type="text" placeholder="Type new password..." value={editData.new_password || ''} onChange={e => setEditData({...editData, new_password: e.target.value})} />
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>
-                <button type="button" className="btn btn-secondary btn-block" onClick={() => setShowEditModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-block">Commit Changes</button>
-              </div>
-            </form>
+          <div className="pt-4 border-t border-line">
+            {/* This heading previously read "SECURITY SECURITY SECURITY". */}
+            <p className="text-xs font-bold uppercase tracking-wide text-muted mb-3">Security</p>
+            <Input
+              label="Reset password"
+              hint="Leave blank to keep the current password."
+              type="text"
+              autoComplete="off"
+              placeholder="New password"
+              value={editData.new_password || ''}
+              onChange={(e) => setEditData({ ...editData, new_password: e.target.value })}
+            />
           </div>
-        </div>
-      )}
 
-      {showPaymentModal && (
-        <div className="modal-backdrop" onClick={() => setShowPaymentModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginBottom: 'var(--space-md)' }}>{editingPaymentId ? 'Edit Ledger' : 'New Ledger Entry'}</h2>
-            <form onSubmit={handleLogPayment}>
-              <div className="form-group">
-                <label className="form-label">Amount (PKR)*</label>
-                <input required type="text" inputMode="numeric" className="form-input" value={paymentForm.amount} onChange={e => setPaymentForm({...paymentForm, amount: e.target.value})} />
-              </div>
-              <div className="form-group">
-                <label className="form-label">Category</label>
-                <select className="form-select" value={paymentForm.type} onChange={e => setPaymentForm({...paymentForm, type: e.target.value})}>
-                  <option value="RECURRING">Subscription Income</option>
-                  <option value="SETUP">One-time Setup Cost</option>
-                </select>
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>
-                <button type="button" className="btn btn-secondary btn-block" onClick={() => setShowPaymentModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-block">Confirm</button>
-              </div>
-            </form>
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowEditModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSubmitting}>
+              Save changes
+            </Button>
           </div>
-        </div>
-      )}
+        </form>
+      </Modal>
 
-      {showRenewModal && (
-        <div className="modal-backdrop" onClick={() => setShowRenewModal(false)}>
-          <div className="modal-content" onClick={e => e.stopPropagation()}>
-            <h2 style={{ marginBottom: 'var(--space-md)' }}>Renew Gym Access</h2>
-            <form onSubmit={handleRenewSubmit}>
-              <div className="form-group">
-                <label className="form-label">Duration</label>
-                <select className="form-select" value={renewalForm.months} onChange={e => setRenewalForm({...renewalForm, months: e.target.value})}>
-                  <option value="1">1 Month</option>
-                  <option value="3">3 Months</option>
-                  <option value="6">6 Months</option>
-                  <option value="12">1 Year</option>
-                  <option value="custom">Custom Days</option>
-                </select>
-              </div>
-              <div className="form-group">
-                <label className="form-label">Actual Amount Collected (PKR)</label>
-                <input required type="text" inputMode="numeric" className="form-input" value={renewalForm.amount} onChange={e => setRenewalForm({...renewalForm, amount: e.target.value})} />
-              </div>
-              <div style={{ display: 'flex', gap: 'var(--space-sm)', marginTop: 'var(--space-lg)' }}>
-                <button type="button" className="btn btn-secondary btn-block" onClick={() => setShowRenewModal(false)}>Cancel</button>
-                <button type="submit" className="btn btn-primary btn-block" disabled={isSubmitting}>Confirm Renewal</button>
-              </div>
-            </form>
+      <Modal
+        open={showPaymentModal}
+        onClose={() => setShowPaymentModal(false)}
+        title={editingPaymentId ? 'Edit ledger entry' : 'New ledger entry'}
+      >
+        <form className="flex flex-col gap-4" onSubmit={handleLogPayment}>
+          <Input
+            label="Amount"
+            required
+            type="text"
+            inputMode="numeric"
+            value={paymentForm.amount}
+            onChange={(e) => setPaymentForm({ ...paymentForm, amount: e.target.value })}
+          />
+          <Select
+            label="Category"
+            value={paymentForm.kind}
+            onChange={(e) => setPaymentForm({ ...paymentForm, kind: e.target.value })}
+          >
+            {Object.entries(PAYMENT_KIND_LABEL).map(([value, label]) => (
+              <option key={value} value={value}>{label}</option>
+            ))}
+          </Select>
+          <Input
+            label="Date"
+            type="date"
+            value={paymentForm.paid_at}
+            onChange={(e) => setPaymentForm({ ...paymentForm, paid_at: e.target.value })}
+          />
+
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowPaymentModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSubmitting}>
+              {editingPaymentId ? 'Save' : 'Record payment'}
+            </Button>
           </div>
-        </div>
-      )}
-    </div>
+        </form>
+      </Modal>
+
+      <Modal
+        open={showRenewModal}
+        onClose={() => setShowRenewModal(false)}
+        title="Renew gym access"
+        description={`Extends ${gym.gym_name}'s subscription and logs the payment.`}
+      >
+        <form className="flex flex-col gap-4" onSubmit={handleRenewSubmit}>
+          <Select
+            label="Duration"
+            value={renewalForm.months}
+            onChange={(e) => setRenewalForm({ ...renewalForm, months: e.target.value })}
+          >
+            <option value="1">1 month</option>
+            <option value="3">3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">1 year</option>
+            <option value="custom">Custom days</option>
+          </Select>
+
+          {/* The "Custom days" option had no matching input, so choosing it sent NaN. */}
+          {renewalForm.months === 'custom' && (
+            <Input
+              label="Custom days"
+              required
+              type="number"
+              min="1"
+              placeholder="e.g. 15"
+              value={renewalForm.customDays}
+              onChange={(e) => setRenewalForm({ ...renewalForm, customDays: e.target.value })}
+            />
+          )}
+
+          <Input
+            label="Amount collected"
+            required
+            type="text"
+            inputMode="numeric"
+            value={renewalForm.amount}
+            onChange={(e) => setRenewalForm({ ...renewalForm, amount: e.target.value })}
+          />
+
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowRenewModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSubmitting}>
+              Confirm renewal
+            </Button>
+          </div>
+        </form>
+      </Modal>
+      <Modal
+        open={showConvertModal}
+        onClose={() => setShowConvertModal(false)}
+        title="Convert trial to paid"
+        description={
+          trialDaysLeft !== null
+            ? `The paid period starts when the trial ends, so the ${trialDaysLeft} remaining trial day${trialDaysLeft === 1 ? '' : 's'} are not lost.`
+            : undefined
+        }
+      >
+        <form
+          className="flex flex-col gap-4"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            setIsSubmitting(true);
+            await runLifecycle(
+              'convert-trial',
+              {
+                plan_code: convertForm.plan_code || plans[0]?.code,
+                months: Number(convertForm.months),
+                amount: Number(convertForm.amount) || 0,
+              },
+              'Trial converted.'
+            );
+            setIsSubmitting(false);
+            setShowConvertModal(false);
+          }}
+        >
+          <Select
+            label="Plan"
+            required
+            value={convertForm.plan_code || plans[0]?.code || ''}
+            onChange={(e) => setConvertForm({ ...convertForm, plan_code: e.target.value })}
+          >
+            {plans.map((pl) => (
+              <option key={pl.id} value={pl.code}>
+                {pl.name} — {money(pl.price)} / {pl.billing_period}
+              </option>
+            ))}
+          </Select>
+
+          <Select
+            label="Length"
+            value={convertForm.months}
+            onChange={(e) => setConvertForm({ ...convertForm, months: e.target.value })}
+          >
+            <option value="1">1 month</option>
+            <option value="3">3 months</option>
+            <option value="6">6 months</option>
+            <option value="12">1 year</option>
+          </Select>
+
+          <Input
+            label="Amount collected"
+            type="number"
+            min="0"
+            placeholder="0"
+            hint="Leave at 0 if payment has not been taken yet."
+            value={convertForm.amount}
+            onChange={(e) => setConvertForm({ ...convertForm, amount: e.target.value })}
+          />
+
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowConvertModal(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSubmitting} disabled={plans.length === 0}>
+              Convert
+            </Button>
+          </div>
+        </form>
+      </Modal>
+    </Page>
   );
 }

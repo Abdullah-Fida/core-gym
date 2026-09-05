@@ -1,144 +1,93 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Edit, CreditCard, Trash2, CalendarCheck, Loader2, Printer } from 'lucide-react';
+import { Pencil, CreditCard, Trash2, Printer, Wallet, CalendarDays, HandCoins } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
-import { getInitials, formatPKR, formatDate, getCurrentMonth, getCurrentYear, getMonthName, generateId } from '../../lib/utils';
-import { STAFF_ROLES, PAYMENT_METHODS } from '../../lib/constants';
+import { formatDate, getCurrentMonth, getCurrentYear, getMonthName, generateId } from '../../lib/utils';
+import { STAFF_ROLES, PAYMENT_METHODS, APP_NAME } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
-import { useConfirm } from '../../contexts/ConfirmContext';
-import { ModernLoader } from '../../components/common/ModernLoader';
 import { printThermalReceipt } from '../../lib/thermalPrinter';
-import '../../styles/members.css';
+import {
+  Page, PageHeader, BackLink, Card, CardHeader, Button, Badge,
+  Avatar, Input, Select, Modal, DeleteChoiceModal,
+  Skeleton, ErrorState, EmptyState,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
 
 export default function StaffDetailPage() {
+  const money = useMoney();
   const { id } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const confirm = useConfirm();
   const { user } = useAuth();
-  
+
   const [staff, setStaff] = useState(null);
   const [loading, setLoading] = useState(true);
+  const [notFound, setNotFound] = useState(false);
   const [showPayForm, setShowPayForm] = useState(false);
+  // Trainers accrue commission alongside salary; other roles never will, so the
+  // block below stays hidden for them rather than showing a permanent zero.
+  const [commission, setCommission] = useState({ pending: 0, paid: 0, loading: true });
   const [isSaving, setIsSaving] = useState(false);
   const [showDeleteOptions, setShowDeleteOptions] = useState(false);
-  const [payForm, setPayForm] = useState({ 
-    amount_paid: '', 
-    paid_date: new Date().toISOString().split('T')[0], 
-    payment_method: 'cash', 
-    notes: '' 
+  const [payForm, setPayForm] = useState({
+    amount_paid: '',
+    paid_date: new Date().toISOString().split('T')[0],
+    payment_method: 'cash',
+    notes: '',
   });
 
   const month = getCurrentMonth();
   const year = getCurrentYear();
 
   useEffect(() => {
-    const fetchStaff = async () => {
+    (async () => {
       setLoading(true);
       try {
         const res = await api.get(`/staff/${id}`);
         const s = res.data.data;
-        if (s) {
-          setStaff(s);
-          setPayForm(p => ({ ...p, amount_paid: String(s.monthly_salary) }));
-        } else {
-          toast.error('Staff member not found');
+        if (!s) {
+          setNotFound(true);
+          return;
         }
+        setStaff(s);
+        setPayForm((p) => ({ ...p, amount_paid: String(s.monthly_salary ?? '') }));
       } catch (err) {
         console.error('Failed to fetch staff member', err);
-        toast.error('Staff member not found');
+        setNotFound(true);
       } finally {
         setLoading(false);
       }
-    };
-    fetchStaff();
+    })();
   }, [id]);
 
-  if (loading) return (
-    <div className="page-container" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '60vh' }}>
-      <ModernLoader type="morph" text="Loading Staff Profile..." />
-    </div>
-  );
+  useEffect(() => {
+    let alive = true;
+    api.get('/trainers/commissions', { params: { staff_id: id } })
+      .then((res) => {
+        if (!alive) return;
+        const t = res.data.totals || { pending: 0, paid: 0 };
+        setCommission({ pending: t.pending, paid: t.paid, loading: false });
+      })
+      .catch(() => alive && setCommission((c) => ({ ...c, loading: false })));
+    return () => { alive = false; };
+  }, [id]);
 
-  if (!staff) return <div className="page-container"><p>Staff not found</p></div>;
-
-  const salaryHistory = staff.staff_payments || [];
-  
-  let isPaid = false;
-  if (salaryHistory.length > 0) {
-    const sorted = [...salaryHistory].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
-    const lastDate = new Date(sorted[0].paid_date);
-    const today = new Date();
-    today.setHours(0,0,0,0);
-    lastDate.setHours(0,0,0,0);
-    const diffDays = Math.floor((today - lastDate) / (1000 * 60 * 60 * 24));
-    isPaid = diffDays <= 30;
-  }
-  const roleInfo = STAFF_ROLES.find(r => r.value === staff.role);
-
-  const handlePaySalary = async (e) => {
-    e.preventDefault();
-    setIsSaving(true);
+  const handleCommissionPayout = async () => {
     try {
-      const pid = generateId();
-      const payload = { 
-        id: pid,
-        staff_id: id,
-        month, 
-        year, 
-        amount_paid: Number(payForm.amount_paid), 
-        paid_date: payForm.paid_date, 
-        payment_method: payForm.payment_method, 
-        notes: payForm.notes,
-      };
-      await api.post(`/staff/${id}/salary`, payload);
-
-      toast.success(`Salary marked as paid for ${staff.name}!`);
-      setShowPayForm(false);
-
-      // Auto-print salary receipt
-      printSalaryReceipt({
-        id: pid,
-        staffName: staff.name,
-        staffPhone: staff.phone,
-        amount: Number(payForm.amount_paid),
-        month, year,
-        paidDate: payForm.paid_date,
-        paymentMethod: payForm.payment_method,
-        gymName: user?.gym_name || 'CORE GYM',
-      });
-      
-      // Refresh from API
-      const res = await api.get(`/staff/${id}`);
-      if (res.data.data) setStaff(res.data.data);
+      const res = await api.post(`/trainers/${id}/payout`);
+      toast.success(`${money(res.data.data.total)} paid to ${staff.name}.`);
+      const fresh = await api.get('/trainers/commissions', { params: { staff_id: id } });
+      const t = fresh.data.totals || { pending: 0, paid: 0 };
+      setCommission({ pending: t.pending, paid: t.paid, loading: false });
     } catch (err) {
-      toast.error(err.response?.data?.message || 'Failed to log salary payment');
-    } finally {
-      setIsSaving(false);
-    }
-  };
-
-  const handleDelete = async (permanent = false) => {
-    setShowDeleteOptions(false);
-    try {
-      if (permanent) {
-        await api.delete(`/staff/${id}?permanent=true`);
-        toast.success(`${staff.name} and all records permanently deleted`);
-      } else {
-        await api.delete(`/staff/${id}`);
-        toast.success(`${staff.name} removed (financial history preserved)`);
-      }
-      navigate('/staff');
-    } catch (err) {
-      console.error('Failed to delete staff', err);
-      toast.error('Failed to remove staff');
+      toast.error(err.response?.data?.message || 'Could not record the payout.');
     }
   };
 
   const printSalaryReceipt = (data) => {
     printThermalReceipt({
-      gymName: user?.gym_name || 'CORE GYM',
+      gymName: user?.gym_name || APP_NAME,
       invoiceId: data.id,
       memberName: data.staffName,
       memberPhone: data.staffPhone,
@@ -149,169 +98,288 @@ export default function StaffDetailPage() {
     });
   };
 
+  const handlePaySalary = async (e) => {
+    e.preventDefault();
+    setIsSaving(true);
+    try {
+      const pid = generateId();
+      await api.post(`/staff/${id}/salary`, {
+        id: pid,
+        staff_id: id,
+        month,
+        year,
+        amount_paid: Number(payForm.amount_paid),
+        paid_date: payForm.paid_date,
+        payment_method: payForm.payment_method,
+        notes: payForm.notes,
+      });
+
+      toast.success(`Salary logged for ${staff.name}.`);
+      setShowPayForm(false);
+
+      printSalaryReceipt({
+        id: pid,
+        staffName: staff.name,
+        staffPhone: staff.phone,
+        amount: Number(payForm.amount_paid),
+        month,
+        year,
+        paidDate: payForm.paid_date,
+        paymentMethod: payForm.payment_method,
+      });
+
+      const res = await api.get(`/staff/${id}`);
+      if (res.data.data) setStaff(res.data.data);
+    } catch (err) {
+      toast.error(err.response?.data?.message || 'Could not log this salary payment.');
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  const handleDelete = async (permanent) => {
+    setShowDeleteOptions(false);
+    try {
+      await api.delete(`/staff/${id}${permanent ? '?permanent=true' : ''}`);
+      toast.success(
+        permanent
+          ? `${staff.name} and all records permanently deleted.`
+          : `${staff.name} removed — salary history preserved.`
+      );
+      navigate('/staff');
+    } catch (err) {
+      console.error('Failed to delete staff', err);
+      toast.error(err.response?.data?.message || 'Could not remove this staff member.');
+    }
+  };
+
+  if (loading) {
+    return (
+      <Page width="narrow">
+        <Skeleton className="h-8 w-32 mb-6" />
+        <Skeleton className="h-40 mb-4" />
+        <Skeleton className="h-64" />
+      </Page>
+    );
+  }
+
+  if (notFound || !staff) {
+    return (
+      <Page width="narrow">
+        <ErrorState
+          title="Staff member not found"
+          description="They may have been removed."
+          onRetry={() => navigate('/staff')}
+        />
+      </Page>
+    );
+  }
+
+  const salaryHistory = (staff.staff_payments || []).filter((p) => (p.kind ?? 'salary') === 'salary');
+  let isPaid = false;
+  if (salaryHistory.length) {
+    const [latest] = [...salaryHistory].sort((a, b) => new Date(b.paid_date) - new Date(a.paid_date));
+    const last = new Date(latest.paid_date);
+    const today = new Date();
+    last.setHours(0, 0, 0, 0);
+    today.setHours(0, 0, 0, 0);
+    isPaid = Math.floor((today - last) / 86400000) <= 30;
+  }
+  const role = STAFF_ROLES.find((r) => r.value === staff.role);
+
   return (
-    <div className="page-container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-md)' }}>
-        <button className="btn btn-icon btn-secondary" onClick={() => navigate(-1)}><ArrowLeft size={20} /></button>
-        <span style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>Staff Profile</span>
-      </div>
+    <Page width="narrow">
+      <PageHeader
+        title={staff.name}
+        subtitle={staff.phone}
+        back={<BackLink to="/staff" label="Staff" />}
+        actions={
+          <Button variant="secondary" onClick={() => navigate(`/staff/${id}/edit`)}>
+            <Pencil className="size-4" aria-hidden="true" />
+            Edit
+          </Button>
+        }
+      />
 
-      <div style={{ textAlign: 'center', marginBottom: 'var(--space-lg)' }}>
-        <div className="avatar avatar-xl" style={{ background: roleInfo?.color || 'var(--accent-gradient)', margin: '0 auto var(--space-md)' }}>{getInitials(staff.name)}</div>
-        <h2>{staff.name}</h2>
-        <div style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)' }}>{staff.phone}</div>
-        <div style={{ marginTop: 'var(--space-sm)', display: 'flex', gap: 'var(--space-sm)', justifyContent: 'center' }}>
-          <span className="badge" style={{ background: (roleInfo?.color || '#6c5ce7') + '22', color: roleInfo?.color }}>{roleInfo?.label || staff.custom_role}</span>
-          <span className={`badge ${isPaid ? 'badge-active' : 'badge-danger'}`}>{isPaid ? 'Paid' : 'Unpaid'} ({getMonthName(month)})</span>
+      <Card padding="lg" className="text-center mb-4">
+        <Avatar name={staff.name} tone={role?.tone ?? 'neutral'} size="lg" className="mx-auto mb-3" />
+        <div className="flex items-center justify-center gap-2 flex-wrap">
+          <Badge variant={role?.tone ?? 'neutral'}>{role?.label || staff.custom_role || 'Staff'}</Badge>
+          <Badge variant={isPaid ? 'success' : 'danger'} dot>
+            {isPaid ? 'Paid' : 'Unpaid'} · {getMonthName(month)}
+          </Badge>
         </div>
+      </Card>
+
+      <div className="grid grid-cols-2 gap-3 mb-4">
+        <Card className="flex items-center gap-3">
+          <span className="flex items-center justify-center size-10 rounded-xl bg-accent-soft text-accent shrink-0">
+            <Wallet className="size-5" aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-xs text-muted">Monthly salary</span>
+            <span className="block font-bold text-heading tabular-nums truncate">
+              {money(staff.monthly_salary)}
+            </span>
+          </span>
+        </Card>
+        <Card className="flex items-center gap-3">
+          <span className="flex items-center justify-center size-10 rounded-xl bg-info-soft text-info shrink-0">
+            <CalendarDays className="size-5" aria-hidden="true" />
+          </span>
+          <span className="min-w-0">
+            <span className="block text-xs text-muted">Joined</span>
+            <span className="block font-bold text-heading truncate">{formatDate(staff.join_date)}</span>
+          </span>
+        </Card>
       </div>
 
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Monthly Salary</div>
-          <div style={{ fontSize: 'var(--font-lg)', fontWeight: 700 }}>{formatPKR(staff.monthly_salary)}</div>
-        </div>
-        <div className="card" style={{ textAlign: 'center' }}>
-          <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>Joined Date</div>
-          <div style={{ fontSize: 'var(--font-sm)' }}>{formatDate(staff.join_date)}</div>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <button className="btn btn-secondary" onClick={() => navigate(`/staff/${id}/edit`)}><Edit size={16} /> Edit</button>
-        {!isPaid && <button className="btn btn-primary" onClick={() => setShowPayForm(true)}><CreditCard size={16} /> Pay Salary</button>}
-        {isPaid && <button className="btn btn-secondary" disabled>✓ Paid</button>}
-        <button className="btn btn-danger" style={{ gridColumn: '1 / -1' }} onClick={() => setShowDeleteOptions(true)}><Trash2 size={16} /> Delete Staff Member</button>
-      </div>
-
-      {/* Pay Salary Form */}
-      {showPayForm && (
-        <div className="card" style={{ marginBottom: 'var(--space-lg)' }}>
-          <h3 style={{ marginBottom: 'var(--space-md)' }}>Log Salary Payment</h3>
-          <form onSubmit={handlePaySalary}>
-            <div className="form-group"><label className="form-label">Amount Paid</label><input className="form-input" type="text" inputMode="numeric" value={payForm.amount_paid} onChange={e => setPayForm(p => ({ ...p, amount_paid: e.target.value }))} /></div>
-            <div className="form-group"><label className="form-label">Date</label><input className="form-input" type="date" value={payForm.paid_date} onChange={e => setPayForm(p => ({ ...p, paid_date: e.target.value }))} /></div>
-            <div className="form-group"><label className="form-label">Payment Method</label><select className="form-select" value={payForm.payment_method} onChange={e => setPayForm(p => ({ ...p, payment_method: e.target.value }))}>{PAYMENT_METHODS.map(m => <option key={m.value} value={m.value}>{m.label}</option>)}</select></div>
-            <div style={{ display: 'flex', gap: 'var(--space-sm)' }}>
-              <button type="submit" className="btn btn-primary btn-block" disabled={isSaving}>
-                {isSaving ? <Loader2 className="spin" size={18} /> : 'Log Salary'}
-              </button>
-              <button type="button" className="btn btn-secondary" onClick={() => setShowPayForm(false)} disabled={isSaving}>Cancel</button>
+      {staff.role === 'trainer' && !commission.loading && (
+        <Card className="mb-4">
+          <CardHeader
+            title="Personal-training commission"
+            subtitle="Earned from PT packages, paid through the same ledger as salary."
+            action={
+              commission.pending > 0 ? (
+                <Button size="sm" variant="success" onClick={handleCommissionPayout}>
+                  <HandCoins className="size-4" aria-hidden="true" />
+                  Pay {money(commission.pending)}
+                </Button>
+              ) : null
+            }
+          />
+          <dl className="grid grid-cols-2 gap-4">
+            <div>
+              <dt className="text-xs text-muted">Pending</dt>
+              <dd className="text-xl font-bold text-warning font-display tabular-nums">
+                {money(commission.pending)}
+              </dd>
             </div>
-          </form>
-        </div>
+            <div>
+              <dt className="text-xs text-muted">Paid to date</dt>
+              <dd className="text-xl font-bold text-success font-display tabular-nums">
+                {money(commission.paid)}
+              </dd>
+            </div>
+          </dl>
+        </Card>
       )}
 
-      {/* Salary History */}
-      <h3 className="section-title">Salary History</h3>
-      <div className="card">
+      <div className="flex gap-2 mb-6">
+        <Button
+          className="grow"
+          disabled={isPaid}
+          onClick={() => setShowPayForm(true)}
+          title={isPaid ? 'Already paid this month' : undefined}
+        >
+          <CreditCard className="size-4" aria-hidden="true" />
+          {isPaid ? 'Salary paid' : 'Pay salary'}
+        </Button>
+        <Button variant="danger-soft" onClick={() => setShowDeleteOptions(true)}>
+          <Trash2 className="size-4" aria-hidden="true" />
+          Remove
+        </Button>
+      </div>
+
+      <Card>
+        <CardHeader title="Salary history" subtitle={`${salaryHistory.length} payment${salaryHistory.length === 1 ? '' : 's'}`} />
         {salaryHistory.length === 0 ? (
-          <p style={{ color: 'var(--text-muted)', textAlign: 'center', padding: 'var(--space-md)' }}>No payments yet</p>
+          <EmptyState icon={Wallet} title="No payments yet" description="Logged salaries appear here." className="py-8" />
         ) : (
-          salaryHistory.map(sp => (
-            <div key={sp.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '12px 0', borderBottom: '1px solid var(--border-color)' }}>
-              <div>
-                <div style={{ fontWeight: 600 }}>{getMonthName(sp.month)} {sp.year}</div>
-                <div style={{ fontSize: 'var(--font-xs)', color: 'var(--text-muted)' }}>{formatDate(sp.paid_date)} • {sp.payment_method}</div>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)' }}>
-                <div style={{ fontWeight: 700, color: 'var(--status-active)' }}>{formatPKR(sp.amount_paid)}</div>
-                <button
-                  className="btn btn-icon btn-secondary"
-                  style={{ padding: 6, minWidth: 'auto' }}
-                  title="Print Receipt"
-                  onClick={() => {
+          <ul className="flex flex-col divide-y divide-line -my-2">
+            {salaryHistory.map((sp) => (
+              <li key={sp.id} className="flex items-center gap-3 py-3">
+                <span className="grow min-w-0">
+                  <span className="block text-sm font-semibold text-heading">
+                    {getMonthName(sp.month)} {sp.year}
+                  </span>
+                  <span className="block text-xs text-muted">
+                    {formatDate(sp.paid_date)} · {sp.payment_method}
+                  </span>
+                </span>
+                <span className="font-bold text-success tabular-nums shrink-0">
+                  {money(sp.amount_paid)}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label={`Print receipt for ${getMonthName(sp.month)} ${sp.year}`}
+                  title="Print receipt"
+                  onClick={() =>
                     printSalaryReceipt({
                       id: sp.id,
                       staffName: staff.name,
                       staffPhone: staff.phone,
                       amount: sp.amount_paid,
-                      month: sp.month, year: sp.year,
+                      month: sp.month,
+                      year: sp.year,
                       paidDate: sp.paid_date,
                       paymentMethod: sp.payment_method,
-                      gymName: user?.gym_name || 'CORE GYM',
-                    });
-                  }}
+                    })
+                  }
                 >
-                  <Printer size={14} />
-                </button>
-              </div>
-            </div>
-          ))
+                  <Printer className="size-4" aria-hidden="true" />
+                </Button>
+              </li>
+            ))}
+          </ul>
         )}
-      </div>
-      {/* DELETE OPTIONS MODAL */}
-      {showDeleteOptions && (
-        <div className="modal-backdrop" style={{ alignItems: 'center', backgroundColor: 'rgba(0,0,0,0.8)', backdropFilter: 'blur(8px)', zIndex: 1000 }} onClick={() => setShowDeleteOptions(false)}>
-          <div style={{ 
-            backgroundColor: 'var(--bg-secondary)',
-            maxWidth: 450, 
-            width: '90%',
-            borderRadius: '28px', 
-            border: '1px solid var(--border-color)', 
-            textAlign: 'center', 
-            padding: 'var(--space-xl)',
-            margin: '0 var(--space-md)',
-            animation: 'scaleIn 0.3s cubic-bezier(0.34, 1.56, 0.64, 1)',
-            boxShadow: 'var(--shadow-2xl)',
-            position: 'relative'
-          }} onClick={e => e.stopPropagation()}>
-            <div style={{ marginBottom: 'var(--space-lg)' }}>
-              <div style={{ 
-                width: 74, 
-                height: 74, 
-                background: 'rgba(248, 113, 113, 0.1)', 
-                borderRadius: '22px', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center', 
-                margin: '0 auto 24px',
-                border: '1px solid rgba(248, 113, 113, 0.2)'
-              }}>
-                <Trash2 size={36} color="var(--status-danger)" />
-              </div>
-              <h2 style={{ fontSize: 'var(--font-xl)', fontWeight: 800, color: 'var(--text-primary)', marginBottom: 8 }}>Delete Staff Member</h2>
-              <p style={{ color: 'var(--text-muted)', fontSize: 'var(--font-sm)', lineHeight: 1.6 }}>
-                Choose how you want to remove <strong>{staff.name}</strong>.
-              </p>
-            </div>
+      </Card>
 
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              <button className="btn btn-secondary" style={{ 
-                textAlign: 'center', 
-                padding: '16px', 
-                display: 'block', 
-                width: '100%', 
-                height: 'auto',
-                borderRadius: '16px',
-                border: '1px solid var(--border-color)',
-                background: 'var(--bg-tertiary)'
-              }} onClick={() => handleDelete(false)}>
-                <div style={{ fontWeight: 700, color: 'var(--text-primary)', fontSize: 'var(--font-base)' }}>Option 1: Delete Profile Only</div>
-              </button>
+      <Modal
+        open={showPayForm}
+        onClose={() => setShowPayForm(false)}
+        title="Log salary payment"
+        description={`${staff.name} · ${getMonthName(month)} ${year}`}
+      >
+        <form className="flex flex-col gap-4" onSubmit={handlePaySalary}>
+          <Input
+            label="Amount paid"
+            required
+            type="text"
+            inputMode="numeric"
+            value={payForm.amount_paid}
+            onChange={(e) => setPayForm((p) => ({ ...p, amount_paid: e.target.value }))}
+          />
+          <Input
+            label="Date"
+            type="date"
+            value={payForm.paid_date}
+            onChange={(e) => setPayForm((p) => ({ ...p, paid_date: e.target.value }))}
+          />
+          <Select
+            label="Payment method"
+            value={payForm.payment_method}
+            onChange={(e) => setPayForm((p) => ({ ...p, payment_method: e.target.value }))}
+          >
+            {PAYMENT_METHODS.map((m) => (
+              <option key={m.value} value={m.value}>
+                {m.label}
+              </option>
+            ))}
+          </Select>
 
-              <button className="btn btn-danger" style={{ 
-                textAlign: 'center', 
-                padding: '16px', 
-                display: 'block', 
-                width: '100%', 
-                height: 'auto',
-                borderRadius: '16px',
-                background: 'rgba(248, 113, 113, 0.05)',
-                border: '1px solid rgba(248, 113, 113, 0.2)'
-              }} onClick={() => handleDelete(true)}>
-                <div style={{ fontWeight: 700, color: 'var(--status-danger)', fontSize: 'var(--font-base)' }}>Option 2: Delete Everything (Permanent)</div>
-              </button>
-
-              <button className="btn btn-secondary" style={{ marginTop: 12, width: '100%' }} onClick={() => setShowDeleteOptions(false)}>
-                Cancel
-              </button>
-            </div>
+          <div className="flex gap-2 mt-2">
+            <Button type="button" variant="secondary" block onClick={() => setShowPayForm(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" block loading={isSaving}>
+              Log salary
+            </Button>
           </div>
-        </div>
-      )}
-    </div>
+        </form>
+      </Modal>
+
+      <DeleteChoiceModal
+        open={showDeleteOptions}
+        onClose={() => setShowDeleteOptions(false)}
+        title="Remove staff member"
+        name={staff.name}
+        softDescription="They disappear from your staff list, but their salary payments stay in your expense reports."
+        hardDescription="Permanently deletes this staff member along with every salary payment and attendance record. This cannot be undone."
+        onSoftDelete={() => handleDelete(false)}
+        onHardDelete={() => handleDelete(true)}
+      />
+    </Page>
   );
 }
-

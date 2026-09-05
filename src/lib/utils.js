@@ -1,7 +1,16 @@
-// Core Gym — Utility Functions
+import { formatMoney } from './money';
+// Batgos — Utility Functions
 
-export function formatPKR(amount) {
-  return `PKR ${Number(amount || 0).toLocaleString('en-PK')}`;
+/**
+ * Deprecated: hardcodes PKR. Use the `useMoney()` hook inside components, or
+ * `formatMoney(amount, { currency, locale })` from lib/money.js where there is
+ * no gym in context (printed receipts, background jobs).
+ *
+ * Kept as a thin delegate so any straggling import still renders correctly
+ * rather than silently diverging from the rest of the app.
+ */
+export function formatPKR(amount, currency = 'PKR', locale) {
+  return formatMoney(amount, { currency, locale });
 }
 
 export function formatDate(dateStr) {
@@ -120,28 +129,39 @@ export function generateId() {
   });
 }
 
-export function getWhatsAppLink(phone, message) {
-  let cleaned = phone.replace(/[^0-9]/g, '');
-  // Handle all Pakistani number formats:
-  // 03001234567 (11 digits) → 923001234567
-  // 3001234567  (10 digits) → 923001234567
-  // 923001234567 (12 digits, already international) → keep as is
-  // +923001234567 → 923001234567 (+ already stripped above)
-  if (cleaned.startsWith('0') && cleaned.length === 11) {
-    cleaned = '92' + cleaned.substring(1);
-  } else if (cleaned.length === 10 && !cleaned.startsWith('0') && !cleaned.startsWith('92')) {
-    cleaned = '92' + cleaned;
-  } else if (cleaned.startsWith('92') && cleaned.length === 12) {
-    // Already correct international format
-  }
-  const encoded = encodeURIComponent(message);
-  return `https://wa.me/${cleaned}?text=${encoded}`;
+/**
+ * Normalise a local number to international format (digits only).
+ *
+ * `dialCode` comes from the gym's settings. This previously hardcoded 92, so
+ * once the product went international a US member's 5551234567 was rewritten to
+ * 925551234567 and the message went to a stranger's phone.
+ */
+export function normalisePhone(raw, dialCode = '92') {
+  let digits = String(raw ?? '').replace(/\D/g, '');
+  if (!digits) return null;
+
+  const cc = String(dialCode).replace(/\D/g, '') || '92';
+
+  if (digits.startsWith(cc) && digits.length > cc.length + 6) return digits;
+  // Most countries write local numbers with a leading trunk 0.
+  if (digits.startsWith('0')) digits = digits.slice(1);
+  // A number already carrying some other country's code is left as-is;
+  // rewriting it would silently redirect the message.
+  if (digits.length >= 11 && !digits.startsWith(cc)) return digits;
+
+  return cc + digits;
+}
+
+export function getWhatsAppLink(phone, message, dialCode = '92') {
+  const cleaned = normalisePhone(phone, dialCode);
+  if (!cleaned) return null;
+  return `https://wa.me/${cleaned}?text=${encodeURIComponent(message)}`;
 }
 
 export function buildWhatsAppMessage(member, gym) {
   let template = gym.wa_msg_active || 'Hello [Name]';
   const days = member.latest_expiry ? daysFromNow(member.latest_expiry) : null;
-  
+
   if (member.status === 'expired') {
     template = gym.wa_msg_expired || gym.wa_msg_active;
   } else if (member.status === 'due_soon') {
@@ -149,12 +169,15 @@ export function buildWhatsAppMessage(member, gym) {
   }
 
   const daysStr = days !== null ? Math.abs(days).toString() : '0';
-  
+
   return template
     .replace(/\[Name\]/gi, member.name || '')
     .replace(/\[GymName\]/gi, gym.gym_name || '')
     .replace(/\[Days\]/gi, daysStr)
-    .replace(/\[Amount\]/gi, formatPKR(gym.default_monthly_fee || 0))
+    // Follows the gym's own currency rather than always printing rupees.
+    .replace(/\[Amount\]/gi, formatMoney(gym.default_monthly_fee || 0, {
+      currency: gym.currency, locale: gym.locale,
+    }))
     .replace(/\[Phone\]/gi, gym.phone || '');
 }
 

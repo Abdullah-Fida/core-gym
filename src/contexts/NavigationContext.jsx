@@ -1,4 +1,4 @@
-import { createContext, useContext, useState, useEffect, useCallback, useRef } from 'react';
+import { createContext, useContext, useState, useCallback, useRef } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 
 const NavigationContext = createContext();
@@ -30,15 +30,17 @@ export function NavigationProvider({ children }) {
     return 'more';
   }, []);
 
-  // Sync current path to tab stacks
-  useEffect(() => {
+  // Sync the current path into the per-tab stacks. This is React's documented
+  // "adjusting state when a prop changes" pattern rather than an effect: an
+  // effect here re-rendered twice on every navigation.
+  const currentPath = location.pathname + location.search;
+  const [syncedPath, setSyncedPath] = useState(null);
+  if (syncedPath !== currentPath) {
     const tab = getTabFromPath(location.pathname);
-    setTabStacks(prev => ({
-      ...prev,
-      [tab]: location.pathname + location.search
-    }));
+    setSyncedPath(currentPath);
+    setTabStacks(prev => ({ ...prev, [tab]: currentPath }));
     setLastTab(tab);
-  }, [location.pathname, location.search, getTabFromPath]);
+  }
 
   // Scroll management
   const saveScroll = useCallback((path, scrollY) => {

@@ -1,128 +1,185 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
-import { ArrowLeft, Search, Filter, DollarSign, Calendar } from 'lucide-react';
+import { Search, Receipt } from 'lucide-react';
 import api from '../../lib/api';
-import { formatPKR, formatDate } from '../../lib/utils';
+import { formatDate } from '../../lib/utils';
 import { useToast } from '../../contexts/ToastContext';
-import { ModernLoader } from '../../components/common/ModernLoader';
-import '../../styles/admin.css';
+import {
+  Page, PageHeader, BackLink, Button, Badge, Table,
+  Input, Select, EmptyState, ListSkeleton,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
+
+/**
+ * Rows come from the `platform_payments` table: `amount` is a numeric column
+ * and `kind` is a checked enum.
+ *
+ * They were previously JSON strings inside `admin_notes.text`, discriminated by
+ * the magic value `admin = 'PaymentSystem'`, which meant this page had to parse
+ * every row defensively and totals could not be computed in SQL.
+ */
+const PAYMENT_KIND_LABEL = {
+  subscription: 'Subscription',
+  setup: 'Setup',
+  refund: 'Refund',
+  adjustment: 'Adjustment',
+};
+
+const PAYMENT_KIND_VARIANT = {
+  subscription: 'success',
+  setup: 'warning',
+  refund: 'danger',
+  adjustment: 'info',
+};
 
 export default function AdminPaymentsPage() {
+  const money = useMoney();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const toast = useToast();
-  const initialType = searchParams.get('type') || '';
-  
-  const [payments, setPayments] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [filterType, setFilterType] = useState(initialType);
+
+  const [payments, setPayments] = useState(null);
+  const [filterType, setFilterType] = useState(searchParams.get('type') || '');
   const [searchTerm, setSearchTerm] = useState('');
 
   useEffect(() => {
-    async function fetchPayments() {
-      setLoading(true);
+    let alive = true;
+    (async () => {
       try {
         const res = await api.get('/admin/payments');
-        setPayments(res.data.data);
+        if (alive) setPayments(res.data.data || []);
       } catch (err) {
-        toast.error('Failed to fetch global payments');
-      } finally {
-        setLoading(false);
+        console.error(err);
+        if (alive) {
+          setPayments([]);
+          toast.error('Could not load platform payments.');
+        }
       }
-    }
-    fetchPayments();
-  }, []);
+    })();
+    return () => {
+      alive = false;
+    };
+  }, [toast]);
 
-  const filteredPayments = payments.filter(p => {
-    const payload = JSON.parse(p.text);
-    const matchesType = !filterType || payload.type === filterType;
-    const matchesSearch = !searchTerm || 
-      p.gym?.gym_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      payload.amount.toString().includes(searchTerm);
-    return matchesType && matchesSearch;
-  });
+  const filtered = useMemo(() => {
+    if (!payments) return null;
+    const q = searchTerm.trim().toLowerCase();
+    return payments.filter((p) => {
+      if (filterType && p.kind !== filterType) return false;
+      if (!q) return true;
+      return (
+        (p.gym?.gym_name || '').toLowerCase().includes(q) || String(p.amount).includes(q)
+      );
+    });
+  }, [payments, filterType, searchTerm]);
+
+  const loading = filtered === null;
+  const rows = filtered ?? [];
+
+  const columns = [
+    {
+      key: 'gym',
+      header: 'Gym',
+      render: (p) => (
+        <span className="font-semibold text-heading">{p.gym?.gym_name || 'Deleted gym'}</span>
+      ),
+    },
+    {
+      key: 'amount',
+      header: 'Amount',
+      align: 'right',
+      render: (p) => <span className="font-bold tabular-nums">{money(p.amount)}</span>,
+    },
+    {
+      key: 'type',
+      header: 'Type',
+      render: (p) => (
+        <Badge variant={PAYMENT_KIND_VARIANT[p.kind] ?? 'neutral'}>
+          {PAYMENT_KIND_LABEL[p.kind] ?? p.kind}
+        </Badge>
+      ),
+    },
+    { key: 'date', header: 'Date', render: (p) => <span className="text-xs">{formatDate(p.paid_at)}</span> },
+    {
+      key: 'actions',
+      header: '',
+      align: 'right',
+      render: (p) => (
+        <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/gyms/${p.gym_id}`)}>
+          Details
+        </Button>
+      ),
+    },
+  ];
+
+  const total = rows.reduce((s, p) => s + Number(p.amount || 0), 0);
 
   return (
-    <div className="admin-container">
-      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)' }}>
-        <button className="btn btn-icon btn-secondary" onClick={() => navigate('/admin')}><ArrowLeft size={20} /></button>
-        <div>
-          <h1 className="page-title">Payments Log</h1>
-          <p className="page-subtitle">Record of all gym payments</p>
-        </div>
-      </div>
+    <Page>
+      <PageHeader
+        title="Platform payments"
+        subtitle={loading ? 'Loading…' : `${rows.length} records · ${money(total)}`}
+        back={<BackLink to="/admin/dashboard" label="Overview" />}
+      />
 
-      <div style={{ display: 'flex', gap: 'var(--space-sm)', marginBottom: 'var(--space-lg)', flexWrap: 'wrap' }}>
-        <div className="search-bar" style={{ flex: 1, minWidth: 200, marginBottom: 0 }}>
-          <Search />
-          <input 
-            placeholder="Search..." 
-            value={searchTerm} 
-            onChange={e => setSearchTerm(e.target.value)} 
+      <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-2 mb-5">
+        <div className="relative">
+          <Search
+            className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 size-4 text-muted"
+            aria-hidden="true"
+          />
+          <Input
+            type="search"
+            className="pl-9"
+            placeholder="Search gym or amount…"
+            aria-label="Search payments"
+            value={searchTerm}
+            onChange={(e) => setSearchTerm(e.target.value)}
           />
         </div>
-        <select 
-          className="form-select" 
-          style={{ width: 'auto' }} 
-          value={filterType} 
-          onChange={e => setFilterType(e.target.value)}
-        >
-          <option value="">All Types</option>
-          <option value="RECURRING">Subscription</option>
-          <option value="SETUP">Initial Setup</option>
-        </select>
+        <Select aria-label="Payment type" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+          <option value="">All types</option>
+          {Object.entries(PAYMENT_KIND_LABEL).map(([value, label]) => (
+            <option key={value} value={value}>{label}</option>
+          ))}
+        </Select>
       </div>
 
       {loading ? (
-        <div style={{ padding: '60px 0' }}>
-          <ModernLoader type="morph" text="Fetching platform revenue..." />
-        </div>
+        <ListSkeleton rows={6} />
+      ) : rows.length === 0 ? (
+        <EmptyState
+          icon={Receipt}
+          title="No payments recorded"
+          description={searchTerm || filterType ? 'Try a different filter.' : 'Platform revenue will appear here.'}
+        />
       ) : (
-        <div style={{ overflowX: 'auto' }}>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Gym Name</th>
-                <th>Amount</th>
-                <th>Type</th>
-                <th>Date</th>
-                <th>Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredPayments.map(p => {
-                const payload = JSON.parse(p.text);
-                return (
-                  <tr key={p.id}>
-                    <td>{p.gym?.gym_name || 'Deleted Gym'}</td>
-                    <td>{formatPKR(payload.amount)}</td>
-                    <td>
-                      <span className={`badge ${payload.type === 'SETUP' ? 'badge-warning' : 'badge-active'}`}>
-                        {payload.type === 'SETUP' ? 'Setup' : 'Subscription'}
-                      </span>
-                    </td>
-                    <td>{formatDate(p.date)}</td>
-                    <td>
-                      <button className="btn btn-sm btn-secondary" onClick={() => navigate(`/admin/gyms/${p.gym_id}`)}>
-                        Gym Details
-                      </button>
-                    </td>
-                  </tr>
-                );
-              })}
-              {filteredPayments.length === 0 && (
-                <tr>
-                  <td colSpan="5" style={{ textAlign: 'center', padding: 'var(--space-lg)', color: 'var(--text-muted)' }}>
-                    No records found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+        <Table
+          columns={columns}
+          rows={rows}
+          renderCard={(p) => (
+            <button
+              key={p.id}
+              type="button"
+              onClick={() => navigate(`/admin/gyms/${p.gym_id}`)}
+              className="flex items-center gap-3 w-full p-3 text-left bg-surface-2 border border-line rounded-xl transition-colors hover:border-line-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+            >
+              <span className="grow min-w-0">
+                <span className="block font-semibold text-heading truncate">
+                  {p.gym?.gym_name || 'Deleted gym'}
+                </span>
+                <span className="block text-xs text-muted">{formatDate(p.paid_at)}</span>
+              </span>
+              <span className="flex flex-col items-end gap-1 shrink-0">
+                <span className="font-bold text-heading tabular-nums">{money(p.amount)}</span>
+                <Badge variant={PAYMENT_KIND_VARIANT[p.kind] ?? 'neutral'}>
+                  {PAYMENT_KIND_LABEL[p.kind] ?? p.kind}
+                </Badge>
+              </span>
+            </button>
+          )}
+        />
       )}
-    </div>
+    </Page>
   );
 }
-
-

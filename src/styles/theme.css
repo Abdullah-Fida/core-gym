@@ -1,0 +1,255 @@
+/* ==========================================================================
+   BATGOS — Design tokens
+   ==========================================================================
+
+   Two layers, deliberately:
+
+   1. `:root` holds the raw palette as plain CSS variables. `lib/theme.js`
+      rewrites a subset of these at runtime for the accent presets, and
+      `:root.light-mode` overrides them for light mode. Nothing here may be
+      inlined by the build or those overrides stop working.
+
+   2. `@theme inline` maps those variables onto Tailwind's token names. `inline`
+      is load-bearing: it makes Tailwind emit `var(--color-accent)` rather than
+      copying the value at build time, so `bg-accent` follows the live theme.
+
+   Three theme states must all work: no attribute (system), `.light-mode`, and
+   `.dark-mode`. Never give a colour its only definition inside a media query.
+   ========================================================================== */
+
+/* ── Dark (default) ─────────────────────────────────────── */
+:root {
+  color-scheme: dark;
+
+  /* Surfaces — ascending elevation */
+  --bg-primary: #0b1116;
+  --bg-secondary: #121b22;
+  --bg-tertiary: #1a2630;
+  --bg-elevated: #16222b;
+  --bg-glass: rgba(18, 27, 34, 0.82);
+  --bg-glass-hover: rgba(22, 34, 43, 0.92);
+
+  /* Brand */
+  --accent-primary: #38bdf8;
+  --accent-primary-hover: #22a9e5;
+  --accent-secondary: #67e8f9;
+  --accent-gradient: #38bdf8;
+  --accent-gradient-hover: #22a9e5;
+  --accent-glow: 0 10px 22px rgba(56, 189, 248, 0.24);
+  /* Derived from the live accent and surface, so a preset swap and a
+     light/dark swap both flow through automatically. Presets must NOT set
+     these directly — an inline style on <html> would outrank the light-mode
+     rule and keep every soft surface dark on a white page. */
+  --accent-light: color-mix(in srgb, var(--accent-primary) 14%, var(--bg-secondary));
+  --accent-border: color-mix(in srgb, var(--accent-primary) 38%, var(--bg-secondary));
+  /* Text placed *on* the accent. lib/theme.js recomputes this per preset from
+     the primary's relative luminance. */
+  --accent-contrast: #041017;
+
+  /* Status */
+  --status-active: #34d399;
+  --status-active-bg: #142821;
+  --status-warning: #fbbf24;
+  --status-warning-bg: #2b2413;
+  --status-danger: #f87171;
+  --status-danger-bg: #2a1718;
+  --status-info: #60a5fa;
+  --status-info-bg: #162237;
+
+  /* Text */
+  --text-primary: #e6f1f6;
+  --text-secondary: #b6c7d6;
+  --text-muted: #8ea2b5;
+  --text-inverse: #0b1116;
+
+  /* Lines */
+  --border-color: #243447;
+  --border-color-hover: #31465d;
+  --border-strong: #31465d;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 10px rgba(0, 0, 0, 0.34);
+  --shadow-md: 0 14px 30px rgba(0, 0, 0, 0.44);
+  --shadow-lg: 0 24px 44px rgba(0, 0, 0, 0.52);
+  --shadow-2xl: 0 38px 70px rgba(0, 0, 0, 0.64);
+  --shadow-accent: 0 16px 30px rgba(56, 189, 248, 0.2);
+  --shadow-neon: 0 0 24px rgba(56, 189, 248, 0.3);
+
+  /* Layout */
+  --nav-height: 64px;
+  --bottom-nav-height: 68px;
+  --sidebar-width: 248px;
+  --max-content-width: 1280px;
+
+  /* Legacy aliases — still referenced by the not-yet-migrated stylesheets.
+     Remove once src/styles/*.css are gone. */
+  --primary: var(--accent-primary);
+  --border-indigo: var(--accent-primary);
+  --shadow-indigo: var(--shadow-accent);
+  --shadow-orange: var(--shadow-accent);
+  --loader-bg: var(--accent-light);
+  --loader-color: var(--accent-primary);
+  --loader-gradient: var(--accent-gradient);
+  --admin-max-width: var(--max-content-width);
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 18px;
+  --radius-xl: 26px;
+  --radius-full: 9999px;
+  --space-xs: 4px;
+  --space-sm: 8px;
+  --space-md: 16px;
+  --space-lg: 24px;
+  --space-xl: 32px;
+  --space-2xl: 48px;
+  --font-family: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Sora', 'Manrope', sans-serif;
+  --font-xs: 0.75rem;
+  --font-sm: 0.8125rem;
+  --font-base: 0.9375rem;
+  --font-md: 1rem;
+  --font-lg: 1.125rem;
+  --font-xl: 1.375rem;
+  --font-2xl: 1.75rem;
+  --font-3xl: 2.25rem;
+  --transition-fast: 140ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-base: 240ms cubic-bezier(0.22, 1, 0.36, 1);
+  --transition-slow: 380ms cubic-bezier(0.22, 1, 0.36, 1);
+  --z-base: 1;
+  --z-dropdown: 100;
+  --z-sticky: 200;
+  --z-modal-backdrop: 300;
+  --z-modal: 400;
+  --z-toast: 500;
+  --z-nav: 600;
+}
+
+/* ── Light ──────────────────────────────────────────────────
+   Previously ~30% implemented: it overrode 17 variables while the nav chrome
+   stayed hard-coded dark with !important, producing a cream page with a black
+   sidebar. Every surface, text, line and status colour is redefined here, and
+   the status hues are darkened so they still pass contrast on light cards. */
+:root.light-mode {
+  color-scheme: light;
+
+  --bg-primary: #f6f7f9;
+  --bg-secondary: #ffffff;
+  --bg-tertiary: #eef1f5;
+  --bg-elevated: #ffffff;
+  --bg-glass: rgba(255, 255, 255, 0.85);
+  --bg-glass-hover: rgba(255, 255, 255, 0.95);
+
+  --accent-primary: #0284c7;
+  --accent-primary-hover: #0369a1;
+  --accent-secondary: #0891b2;
+  --accent-gradient: #0284c7;
+  --accent-gradient-hover: #0369a1;
+  --accent-glow: 0 10px 22px rgba(2, 132, 199, 0.18);
+  --accent-contrast: #ffffff;
+
+  /* Darkened for ≥4.5:1 on white; the dark-mode values fail badly here. */
+  --status-active: #047857;
+  --status-active-bg: #ecfdf5;
+  --status-warning: #b45309;
+  --status-warning-bg: #fffbeb;
+  --status-danger: #b91c1c;
+  --status-danger-bg: #fef2f2;
+  --status-info: #1d4ed8;
+  --status-info-bg: #eff6ff;
+
+  --text-primary: #0f172a;
+  --text-secondary: #334155;
+  --text-muted: #5b6b7f;
+  --text-inverse: #ffffff;
+
+  --border-color: #e2e8f0;
+  --border-color-hover: #cbd5e1;
+  --border-strong: #94a3b8;
+
+  --shadow-sm: 0 1px 3px rgba(15, 23, 42, 0.08);
+  --shadow-md: 0 8px 24px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 18px 40px rgba(15, 23, 42, 0.12);
+  --shadow-2xl: 0 30px 60px rgba(15, 23, 42, 0.16);
+  --shadow-accent: 0 12px 24px rgba(2, 132, 199, 0.16);
+  --shadow-neon: 0 0 20px rgba(2, 132, 199, 0.2);
+}
+
+/* Explicit dark selection re-asserts the defaults, so toggling wins in both
+   directions rather than relying on the absence of .light-mode. */
+:root.dark-mode {
+  color-scheme: dark;
+}
+
+/* ── Tailwind token mapping ─────────────────────────────────
+   `inline` keeps these as var() references so runtime theming works. */
+@theme inline {
+  /* Surfaces */
+  --color-surface: var(--bg-primary);
+  --color-surface-2: var(--bg-secondary);
+  --color-surface-3: var(--bg-tertiary);
+  --color-elevated: var(--bg-elevated);
+  --color-glass: var(--bg-glass);
+
+  /* Brand */
+  --color-accent: var(--accent-primary);
+  --color-accent-hover: var(--accent-primary-hover);
+  --color-accent-soft: var(--accent-light);
+  --color-accent-contrast: var(--accent-contrast);
+
+  /* Status */
+  --color-success: var(--status-active);
+  --color-success-soft: var(--status-active-bg);
+  --color-warning: var(--status-warning);
+  --color-warning-soft: var(--status-warning-bg);
+  --color-danger: var(--status-danger);
+  --color-danger-soft: var(--status-danger-bg);
+  --color-info: var(--status-info);
+  --color-info-soft: var(--status-info-bg);
+
+  /* Text */
+  --color-heading: var(--text-primary);
+  --color-body: var(--text-secondary);
+  --color-muted: var(--text-muted);
+
+  /* Lines */
+  --color-line: var(--border-color);
+  --color-line-hover: var(--border-color-hover);
+  --color-line-strong: var(--border-strong);
+
+  /* Type */
+  --font-sans: 'Manrope', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-display: 'Sora', 'Manrope', sans-serif;
+
+  /* Shadows */
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-md);
+  --shadow-modal: var(--shadow-lg);
+  --shadow-accent: var(--shadow-accent);
+
+  /* One breakpoint scale. There were nine ad-hoc queries before this
+     (min-600, min-640, max-639, min-768, max-900, min-1024, max-1024,
+     min-1200) with no shared meaning. */
+  --breakpoint-sm: 40rem;   /* 640px  — large phone */
+  --breakpoint-md: 48rem;   /* 768px  — tablet */
+  --breakpoint-lg: 64rem;   /* 1024px — sidebar appears */
+  --breakpoint-xl: 80rem;   /* 1280px — max content width */
+}
+
+/* ── Primitive animations ───────────────────────────────────
+   Named with a `ui-` prefix because `fadeIn`, `shimmer` and `spin` are each
+   already declared two or three times across the legacy feature stylesheets,
+   which are loaded conditionally per page. A collision there would silently
+   change how a primitive animates depending on which page you were on. */
+@keyframes ui-fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes ui-rise {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes ui-shimmer {
+  100% { transform: translateX(100%); }
+}

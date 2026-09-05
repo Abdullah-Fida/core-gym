@@ -1,659 +1,681 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   Users, AlertTriangle, CalendarCheck, TrendingUp, DollarSign,
-  UserPlus, CreditCard, Activity, Clock, AlertCircle, CalendarDays,
-  TrendingDown, Zap, BarChart3, PieChart, ArrowUpRight, ArrowDownRight,
-  Minus, ChevronRight, Flame, Loader2
+  UserPlus, CreditCard, Clock, AlertCircle, TrendingDown,
+  BarChart3, PieChart, ArrowUpRight, ArrowDownRight, Minus,
+  ChevronRight, Flame,
 } from 'lucide-react';
-import {
-  Chart as ChartJS, CategoryScale, LinearScale, BarElement,
-  LineElement, PointElement, ArcElement, Tooltip, Legend,
-  Filler
-} from 'chart.js';
-import { Bar, Line, Doughnut } from 'react-chartjs-2';
-import { StateView } from '../../components/common/StateView';
-import { ModernLoader } from '../../components/common/ModernLoader';
+import { Bar, Doughnut } from 'react-chartjs-2';
+import '../../lib/chartSetup';
 import { useAuth } from '../../contexts/AuthContext';
-import { formatPKR, formatDateShort, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import { formatDateShort, getMonthName, calculateMemberStatus } from '../../lib/utils';
+import { useThemeColors, alpha } from '../../hooks/useThemeColors';
 import api from '../../lib/api';
-import '../../styles/dashboard.css';
-import '../../styles/loading.css';
+import { cn } from '../../lib/cn';
+import {
+  Page, PageHeader, Card, CardHeader, Button, StatCard,
+  Avatar, Tabs, EmptyState, Skeleton, ErrorState,
+} from '../../components/ui';
+import { useMoney } from '../../hooks/useMoney';
 
-ChartJS.register(CategoryScale, LinearScale, BarElement, LineElement, PointElement, ArcElement, Tooltip, Legend, Filler);
 
-const C_TEAL  = '#38bdf8';
-const C_GREEN  = '#34d399';
-const C_RED    = '#f87171';
-const C_AMBER  = '#fbbf24';
-const C_PURPLE = '#a78bfa';
-const C_DARK   = '#0b1116';
+const todayStr = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+
+const parseDateParts = (dateStr) => {
+  if (!dateStr) return { y: 0, m: -1, d: 0 };
+  const [y, m, d] = String(dateStr).slice(0, 10).split('-').map(Number);
+  return { y, m: m - 1, d };
+};
+
+const prevDateStr = (dateStr) => {
+  const dt = new Date(dateStr);
+  dt.setDate(dt.getDate() - 1);
+  return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
+};
+
+const QUICK_ACTIONS = [
+  { icon: UserPlus, label: 'Add member', path: '/members/add', tone: 'text-accent bg-accent-soft' },
+  { icon: CreditCard, label: 'Collect fee', path: '/payments/add', tone: 'text-success bg-success-soft' },
+  { icon: AlertTriangle, label: 'View expired', path: '/members?status=expired', tone: 'text-danger bg-danger-soft' },
+  { icon: CalendarCheck, label: 'Attendance', path: '/attendance', tone: 'text-info bg-info-soft' },
+];
 
 export default function DashboardPage() {
+  const money = useMoney();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const c = useThemeColors();
+
   const [activeTab, setActiveTab] = useState('revenue');
+  const [cashDate, setCashDate] = useState(todayStr);
+  const [membersAddedDate, setMembersAddedDate] = useState(todayStr);
+  const [membersExpiringDate, setMembersExpiringDate] = useState(todayStr);
 
-  const nowDt = new Date();
-  const todayY = nowDt.getFullYear();
-  const todayM = String(nowDt.getMonth() + 1).padStart(2, '0');
-  const todayD = String(nowDt.getDate()).padStart(2, '0');
-  const defaultToday = `${todayY}-${todayM}-${todayD}`;
+  const [raw, setRaw] = useState(null);
+  const [error, setError] = useState(null);
 
-  const [cashDate, setCashDate] = useState(defaultToday);
-  const [membersAddedDate, setMembersAddedDate] = useState(defaultToday);
-  const [membersExpiringDate, setMembersExpiringDate] = useState(defaultToday);
-  const [dashboardData, setDashboardData] = useState(null);
-  const [loading, setLoading] = useState(true);
-
-  const parseDateParts = (dateStr) => {
-    if (!dateStr) return { y: 0, m: -1, d: 0 };
-    const s = String(dateStr).slice(0, 10);
-    const [y, m, d] = s.split('-').map(Number);
-    return { y, m: m - 1, d };
-  };
-
-  const getPrevDateStr = (dateStr) => {
-    const dt = new Date(dateStr);
-    dt.setDate(dt.getDate() - 1);
-    return `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, '0')}-${String(dt.getDate()).padStart(2, '0')}`;
-  };
-
+  // Fetched ONCE. This effect previously depended on the three date pickers, so
+  // changing any single KPI's date refetched every member, payment, expense and
+  // staff record in the gym. The dates only affect derived counts, which are
+  // computed from `raw` in the memo below.
   useEffect(() => {
-    let isMounted = true;
-    const fetchDashboard = async () => {
-      setLoading(true);
+    let alive = true;
+    (async () => {
       try {
         const [membersRes, paymentsRes, expensesRes, staffRes] = await Promise.all([
           api.get('/members'),
           api.get('/payments'),
           api.get('/expenses'),
-          api.get('/staff')
+          api.get('/staff'),
         ]);
-        if (!isMounted) return;
+        if (!alive) return;
 
-        const allMembers  = membersRes.data.data  || [];
-        const allPayments = paymentsRes.data.data  || [];
-        const allExpenses = expensesRes.data.data  || [];
-        const staffData   = staffRes.data.data     || [];
-
-        const allStaffPayments = [];
-        staffData.forEach(s => {
-          if (s.staff_payments) s.staff_payments.forEach(p => allStaffPayments.push(p));
+        const staffPayments = (staffRes.data.data || []).flatMap((s) => s.staff_payments || []);
+        setRaw({
+          members: (membersRes.data.data || [])
+            .filter((m) => m.status !== 'deleted')
+            .map((m) => ({ ...m, status: calculateMemberStatus(m) })),
+          payments: paymentsRes.data.data || [],
+          expenses: expensesRes.data.data || [],
+          staffPayments,
         });
-
-        const activeMembersList = allMembers.filter(m => m.status !== 'deleted');
-        const membersWithStatus = activeMembersList.map(m => ({ ...m, status: calculateMemberStatus(m) }));
-
-        const totalMembers  = membersWithStatus.length;
-        const activeMembers = membersWithStatus.filter(m => m.status === 'active').length;
-        const expiredCount  = membersWithStatus.filter(m => m.status === 'expired').length;
-
-        const now = new Date();
-        const thisMonth = now.getMonth();
-        const thisYear  = now.getFullYear();
-
-        const thisMonthPayments = allPayments.filter(p => {
-          const { y, m } = parseDateParts(p.payment_date);
-          return m === thisMonth && y === thisYear;
-        });
-        const revenue = thisMonthPayments.reduce((sum, p) => sum + Number(p.amount || 0), 0);
-
-        const thisMonthExpenses = allExpenses.filter(e => {
-          const { y, m } = parseDateParts(e.expense_date);
-          return m === thisMonth && y === thisYear;
-        });
-        const monthGeneralExpenses = thisMonthExpenses.reduce((sum, e) => sum + Number(e.amount || 0), 0);
-        const thisMonthStaffPay = allStaffPayments.filter(p => p.month === thisMonth + 1 && p.year === thisYear);
-        const salaryTotal = thisMonthStaffPay.reduce((sum, p) => sum + Number(p.amount_paid || 0), 0);
-        const totalExp    = monthGeneralExpenses + salaryTotal;
-
-        let currMembersAdded = 0, prevMembersAdded = 0;
-        let currMembersExpiring = 0, prevMembersExpiring = 0;
-        let nearExpire3Days = 0;
-
-        const prevAddedStr    = getPrevDateStr(membersAddedDate);
-        const prevExpiringStr = getPrevDateStr(membersExpiringDate);
-
-        membersWithStatus.forEach(m => {
-          if (m.join_date) {
-            const jStr = String(m.join_date).slice(0, 10);
-            if (jStr === membersAddedDate)  currMembersAdded++;
-            if (jStr === prevAddedStr)      prevMembersAdded++;
-          }
-          if (m.latest_expiry) {
-            const eStr = String(m.latest_expiry).slice(0, 10);
-            if (eStr === membersExpiringDate)  currMembersExpiring++;
-            if (eStr === prevExpiringStr)      prevMembersExpiring++;
-            if (m.status !== 'expired') {
-              const target = new Date(m.latest_expiry);
-              target.setHours(0, 0, 0, 0);
-              const nowZ = new Date(); nowZ.setHours(0, 0, 0, 0);
-              const days = Math.ceil((target - nowZ) / (1000 * 60 * 60 * 24));
-              if (days >= 0 && days <= 3) nearExpire3Days++;
-            }
-          }
-        });
-
-        let currCash = 0, prevCash = 0;
-        const prevCashStr = getPrevDateStr(cashDate);
-        const planCounts  = {};
-
-        allPayments.forEach(p => {
-          if (!p.payment_date) return;
-          const dStr = String(p.payment_date).slice(0, 10);
-          const amt  = Number(p.amount || 0);
-          if (dStr === cashDate)    currCash += amt;
-          if (dStr === prevCashStr) prevCash  += amt;
-          const { y, m } = parseDateParts(p.payment_date);
-          if (m === thisMonth && y === thisYear && amt > 0) {
-            const plan = p.plan_duration_months || 'Unknown';
-            const key  = String(plan) === 'custom' ? 'Custom Days' : `${plan} Month${plan > 1 ? 's' : ''}`;
-            if (!planCounts[key]) planCounts[key] = { count: 0, revenue: 0 };
-            planCounts[key].count   += 1;
-            planCounts[key].revenue += amt;
-          }
-        });
-
-        const popularPlans = Object.entries(planCounts)
-          .map(([label, data]) => ({ label, ...data }))
-          .sort((a, b) => b.revenue - a.revenue)
-          .slice(0, 4);
-
-        const recentPayments = [...allPayments]
-          .sort((a, b) => new Date(b.created_at || b.payment_date) - new Date(a.created_at || a.payment_date))
-          .slice(0, 5);
-
-        const recentActivity = recentPayments.map(p => {
-          const member = allMembers.find(m => m.id === p.member_id);
-          return { ...p, member_name: member ? member.name : 'Unknown Member' };
-        });
-
-        const trend = [];
-        for (let i = 5; i >= 0; i--) {
-          const d = new Date(); d.setMonth(d.getMonth() - i);
-          const m = d.getMonth(), y = d.getFullYear();
-          const mPayments = allPayments.filter(p => { const parts = parseDateParts(p.payment_date); return parts.m === m && parts.y === y; });
-          const mExpenses = allExpenses.filter(e => { const parts = parseDateParts(e.expense_date); return parts.m === m && parts.y === y; });
-          const mSal = allStaffPayments.filter(p => p.month === m + 1 && p.year === y).reduce((s, p) => s + Number(p.amount_paid || 0), 0);
-          const mRev = mPayments.reduce((s, p) => s + Number(p.amount || 0), 0);
-          const mExp = mExpenses.reduce((s, e) => s + Number(e.amount || 0), 0) + mSal;
-          trend.push({ month: m + 1, revenue: mRev, expenses: mExp, profit: mRev - mExp });
-        }
-
-        setDashboardData({
-          stats: {
-            totalMembers, activeMembers, expiredCount, dueSoonCount: nearExpire3Days,
-            revenue, expenses: totalExp, salaryTotal, generalExpenses: monthGeneralExpenses,
-            profit: revenue - totalExp,
-            currCash, prevCash, currMembersAdded, prevMembersAdded,
-            currMembersExpiring, prevMembersExpiring
-          },
-          popularPlans, recentActivity, revenueTrend: trend
-        });
-        setLoading(false);
       } catch (err) {
-        console.error('Dash error:', err);
-        if (isMounted) { setDashboardData({ error: true, msg: err.message }); setLoading(false); }
+        console.error('Dashboard error:', err);
+        if (alive) setError(err.message || 'Could not load dashboard data.');
       }
+    })();
+    return () => {
+      alive = false;
     };
-    fetchDashboard();
-    return () => { isMounted = false; };
-  }, [cashDate, membersAddedDate, membersExpiringDate]);
+  }, []);
 
-  if (loading && !dashboardData) {
+  const stats = useMemo(() => {
+    if (!raw) return null;
+    const { members, payments, expenses, staffPayments } = raw;
+
+    const now = new Date();
+    const thisMonth = now.getMonth();
+    const thisYear = now.getFullYear();
+
+    const inThisMonth = (dateStr) => {
+      const { y, m } = parseDateParts(dateStr);
+      return m === thisMonth && y === thisYear;
+    };
+
+    const revenue = payments.filter((p) => inThisMonth(p.payment_date)).reduce((s, p) => s + Number(p.amount || 0), 0);
+    const generalExpenses = expenses.filter((e) => inThisMonth(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0);
+    const salaryTotal = staffPayments
+      .filter((p) => p.month === thisMonth + 1 && p.year === thisYear)
+      .reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+
+    const prevAdded = prevDateStr(membersAddedDate);
+    const prevExpiring = prevDateStr(membersExpiringDate);
+    const prevCashStr = prevDateStr(cashDate);
+
+    let currMembersAdded = 0, prevMembersAdded = 0;
+    let currMembersExpiring = 0, prevMembersExpiring = 0;
+    let dueSoonCount = 0;
+
+    const midnight = new Date();
+    midnight.setHours(0, 0, 0, 0);
+
+    for (const m of members) {
+      if (m.join_date) {
+        const j = String(m.join_date).slice(0, 10);
+        if (j === membersAddedDate) currMembersAdded++;
+        if (j === prevAdded) prevMembersAdded++;
+      }
+      if (m.latest_expiry) {
+        const e = String(m.latest_expiry).slice(0, 10);
+        if (e === membersExpiringDate) currMembersExpiring++;
+        if (e === prevExpiring) prevMembersExpiring++;
+        if (m.status !== 'expired') {
+          const target = new Date(m.latest_expiry);
+          target.setHours(0, 0, 0, 0);
+          const days = Math.ceil((target - midnight) / 86400000);
+          if (days >= 0 && days <= 3) dueSoonCount++;
+        }
+      }
+    }
+
+    let currCash = 0, prevCash = 0;
+    const planCounts = {};
+    for (const p of payments) {
+      if (!p.payment_date) continue;
+      const d = String(p.payment_date).slice(0, 10);
+      const amt = Number(p.amount || 0);
+      if (d === cashDate) currCash += amt;
+      if (d === prevCashStr) prevCash += amt;
+
+      if (inThisMonth(p.payment_date) && amt > 0) {
+        const plan = p.plan_duration_months || 'Unknown';
+        const key = String(plan) === 'custom' ? 'Custom days' : `${plan} month${plan > 1 ? 's' : ''}`;
+        planCounts[key] ??= { count: 0, revenue: 0 };
+        planCounts[key].count += 1;
+        planCounts[key].revenue += amt;
+      }
+    }
+
+    const trend = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date();
+      d.setMonth(d.getMonth() - i);
+      const m = d.getMonth();
+      const y = d.getFullYear();
+      const matches = (dateStr) => {
+        const parts = parseDateParts(dateStr);
+        return parts.m === m && parts.y === y;
+      };
+      const mRev = payments.filter((p) => matches(p.payment_date)).reduce((s, p) => s + Number(p.amount || 0), 0);
+      const mSal = staffPayments.filter((p) => p.month === m + 1 && p.year === y).reduce((s, p) => s + Number(p.amount_paid || 0), 0);
+      const mExp = expenses.filter((e) => matches(e.expense_date)).reduce((s, e) => s + Number(e.amount || 0), 0) + mSal;
+      trend.push({ month: m + 1, revenue: mRev, expenses: mExp, profit: mRev - mExp });
+    }
+
+    const recentActivity = [...payments]
+      .sort((a, b) => new Date(b.created_at || b.payment_date) - new Date(a.created_at || a.payment_date))
+      .slice(0, 5)
+      .map((p) => ({
+        ...p,
+        member_name: members.find((m) => m.id === p.member_id)?.name ?? p.members?.name ?? 'Unknown member',
+      }));
+
+    const totalMembers = members.length;
+    const activeMembers = members.filter((m) => m.status === 'active').length;
+    const expiredCount = members.filter((m) => m.status === 'expired').length;
+
+    return {
+      totalMembers,
+      activeMembers,
+      expiredCount,
+      dueSoonCount,
+      noPayment: Math.max(0, totalMembers - activeMembers - dueSoonCount - expiredCount),
+      revenue,
+      generalExpenses,
+      salaryTotal,
+      expenses: generalExpenses + salaryTotal,
+      profit: revenue - generalExpenses - salaryTotal,
+      currCash, prevCash,
+      currMembersAdded, prevMembersAdded,
+      currMembersExpiring, prevMembersExpiring,
+      popularPlans: Object.entries(planCounts)
+        .map(([label, d]) => ({ label, ...d }))
+        .sort((a, b) => b.revenue - a.revenue)
+        .slice(0, 4),
+      recentActivity,
+      revenueTrend: trend,
+    };
+  }, [raw, cashDate, membersAddedDate, membersExpiringDate]);
+
+  // Rebuilt whenever the theme changes, so the canvas follows light/dark and
+  // every accent preset.
+  const chartOptions = useMemo(
+    () => ({
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: c.surface3,
+          titleColor: c.heading,
+          bodyColor: c.body,
+          borderColor: c.line,
+          borderWidth: 1,
+          cornerRadius: 8,
+          padding: 10,
+          callbacks: { label: (ctx) => ` ${money(ctx.raw)}` },
+        },
+      },
+      scales: {
+        x: {
+          grid: { display: false },
+          ticks: { color: c.muted, font: { weight: '700', size: 11 } },
+          border: { color: 'transparent' },
+        },
+        y: {
+          grid: { color: alpha(c.line, 0.6) },
+          ticks: {
+            color: c.muted,
+            font: { weight: '600', size: 10 },
+            callback: (v) => (v >= 1000 ? `${v / 1000}K` : v),
+          },
+          border: { color: 'transparent' },
+        },
+      },
+    }),
+    [c, money]
+  );
+
+  const revenueChartData = useMemo(() => {
+    if (!stats) return null;
+    return {
+      labels: stats.revenueTrend.map((d) => getMonthName(d.month).slice(0, 3)),
+      datasets: [
+        {
+          label: 'Revenue',
+          data: stats.revenueTrend.map((d) => d.revenue),
+          backgroundColor: alpha(c.accent, 0.85),
+          hoverBackgroundColor: c.accent,
+          borderWidth: 0,
+          borderRadius: 6,
+        },
+        {
+          label: 'Expenses',
+          data: stats.revenueTrend.map((d) => d.expenses),
+          backgroundColor: alpha(c.danger, 0.6),
+          hoverBackgroundColor: c.danger,
+          borderWidth: 0,
+          borderRadius: 6,
+        },
+      ],
+    };
+  }, [stats, c]);
+
+  const donutSegments = useMemo(() => {
+    if (!stats) return [];
+    return [
+      { label: 'Active', count: stats.activeMembers, color: c.success },
+      { label: 'Due soon', count: stats.dueSoonCount, color: c.warning },
+      { label: 'Expired', count: stats.expiredCount, color: c.danger },
+      { label: 'No payment', count: stats.noPayment, color: c.line },
+    ];
+  }, [stats, c]);
+
+  if (error) {
     return (
-      <div className="page-container dashboard-page" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '70vh' }}>
-        <ModernLoader type="morph" text="Preparing Dashboard..." />
-      </div>
+      <Page>
+        <ErrorState title="Dashboard unavailable" description={error} onRetry={() => window.location.reload()} />
+      </Page>
     );
   }
-  if (dashboardData?.error) return <div className="page-container"><StateView type="error" title="Dashboard Error" description={dashboardData.msg || 'Check connection.'} /></div>;
 
-  const stats          = dashboardData?.stats;
-  const revenueTrend   = dashboardData?.revenueTrend   || [];
-  const recentActivity = dashboardData?.recentActivity || [];
-  const popularPlans   = dashboardData?.popularPlans   || [];
+  const loading = !stats;
 
-  const revenueData = revenueTrend.map(d => d.revenue);
-  const expenseData = revenueTrend.map(d => d.expenses);
-  const profitData  = revenueTrend.map(d => d.profit);
-  const trendLabels = revenueTrend.map(d => getMonthName(d.month).slice(0, 3));
-
-  const activeCount  = stats.activeMembers;
-  const dueSoonCount = stats.dueSoonCount;
-  const expiredCount = stats.expiredCount;
-  const totalCount   = stats.totalMembers;
-  const noPayment    = Math.max(0, totalCount - activeCount - dueSoonCount - expiredCount);
-
-  const getDiff = (curr, prev, isMoney = false) => {
-    const diff = curr - prev;
-    if (diff === 0) return { label: 'Same as yesterday', dir: 'neutral' };
-    const sign = diff > 0 ? '+' : '';
-    const val  = isMoney ? formatPKR(Math.abs(diff)) : Math.abs(diff);
-    return { label: `${sign}${val} vs yesterday`, dir: diff > 0 ? 'up' : 'down' };
+  const diff = (curr, prev, isMoney = false) => {
+    if (loading) return { label: '', dir: 'neutral', value: 0 };
+    const d = curr - prev;
+    if (d === 0) return { label: 'Same as yesterday', dir: 'neutral', value: 0 };
+    const sign = d > 0 ? '+' : '';
+    const val = isMoney ? money(Math.abs(d)) : Math.abs(d);
+    return { label: `${sign}${val} vs yesterday`, dir: d > 0 ? 'up' : 'down', value: d };
   };
 
-  const baseOpts = {
-    responsive: true, maintainAspectRatio: false,
-    plugins: {
-      legend: { display: false },
-      tooltip: { backgroundColor: '#1a2630', titleColor: '#e6f1f6', bodyColor: '#b6c7d6', borderColor: '#243447', borderWidth: 1, cornerRadius: 8, padding: 10 }
-    },
-    scales: {
-      x: { grid: { display: false }, ticks: { color: '#8ea2b5', font: { weight: '700', size: 11 } }, border: { color: 'transparent' } },
-      y: { grid: { color: 'rgba(36,52,71,0.6)' }, ticks: { color: '#8ea2b5', font: { weight: '600', size: 10 }, callback: v => v >= 1000 ? `${v / 1000}K` : v }, border: { color: 'transparent' } }
-    }
-  };
+  const cash = diff(stats?.currCash, stats?.prevCash, true);
+  const added = diff(stats?.currMembersAdded, stats?.prevMembersAdded);
+  const expiring = diff(stats?.currMembersExpiring, stats?.prevMembersExpiring);
 
-  const revenueChartData = {
-    labels: trendLabels,
-    datasets: [
-      { label: 'Revenue',  data: revenueData, backgroundColor: 'rgba(56,189,248,0.85)', borderColor: C_TEAL,  borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_TEAL },
-      { label: 'Expenses', data: expenseData, backgroundColor: 'rgba(248,113,113,0.6)', borderColor: C_RED,   borderWidth: 0, borderRadius: 6, hoverBackgroundColor: C_RED  },
-    ]
-  };
-
-  const profitChartData = {
-    labels: trendLabels,
-    datasets: [{
-      label: 'Profit', data: profitData,
-      borderColor: C_GREEN, backgroundColor: 'rgba(52,211,153,0.08)',
-      borderWidth: 2.5,
-      pointBackgroundColor: profitData.map(v => v >= 0 ? C_GREEN : C_RED),
-      pointRadius: 5, pointHoverRadius: 7,
-      tension: 0.4, fill: true,
-    }]
-  };
-
-  const memberDonutData = {
-    labels: ['Active', 'Due Soon', 'Expired', 'No Payment'],
-    datasets: [{
-      data: [activeCount, dueSoonCount, expiredCount, noPayment],
-      backgroundColor: [C_GREEN, C_AMBER, C_RED, '#243447'],
-      borderColor: [C_DARK], borderWidth: 3,
-      hoverOffset: 8,
-    }]
-  };
+  const DeltaIcon = ({ dir }) =>
+    dir === 'up' ? <ArrowUpRight className="size-3.5" aria-hidden="true" />
+      : dir === 'down' ? <ArrowDownRight className="size-3.5" aria-hidden="true" />
+      : <Minus className="size-3.5" aria-hidden="true" />;
 
   const hour = new Date().getHours();
-  const greeting = hour < 12 ? 'Good Morning' : hour < 17 ? 'Good Afternoon' : 'Good Evening';
-  const greetEmoji = hour < 12 ? '☀️' : hour < 17 ? '⚡' : '🌙';
-
-  const QUICK_ACTIONS = [
-    { icon: <UserPlus size={16}/>,      label: 'Add Member',    path: '/members/add',            color: 'qa-teal'   },
-    { icon: <CreditCard size={16}/>,    label: 'Collect Fee',   path: '/payments/add',           color: 'qa-green'  },
-    { icon: <AlertTriangle size={16}/>, label: 'View Expired',  path: '/members?status=expired', color: 'qa-red'    },
-    { icon: <CalendarCheck size={16}/>, label: 'Attendance',    path: '/attendance',             color: 'qa-purple' },
-  ];
+  const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
-    <div className="page-container dashboard-page">
+    <Page>
+      <PageHeader
+        title={`${greeting}, ${user?.name || 'there'}`}
+        subtitle={new Date().toLocaleDateString(undefined, {
+          weekday: 'long', month: 'long', day: 'numeric', year: 'numeric',
+        })}
+      />
 
-      {/* ══════════════════════════════════════════
-          HEADER
-      ══════════════════════════════════════════ */}
-      <div className="db-header">
-        <div className="db-header-left">
-          <span className="db-greeting-tag">{greetEmoji} {greeting}</span>
-          <h1 className="db-title">Welcome, <span>{user?.name || 'Gym Owner'}</span></h1>
-          <p className="db-subtitle">
-            {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric', year: 'numeric' })}
-          </p>
-        </div>
-        <div className="db-header-right">
-          <div className="db-live-badge">
-            <span className="db-live-dot" />
-            LIVE DATA
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════
-          QUICK ACTIONS
-      ══════════════════════════════════════════ */}
-      <div className="db-quick-actions">
-        {QUICK_ACTIONS.map(qa => (
-          <button key={qa.label} className={`db-qa-btn ${qa.color}`} onClick={() => navigate(qa.path)}>
-            <span className="db-qa-icon">{qa.icon}</span>
-            <span className="db-qa-label">{qa.label}</span>
-            <ChevronRight size={13} className="db-qa-arrow" />
+      {/* Quick actions */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-7">
+        {QUICK_ACTIONS.map((qa) => (
+          <button
+            key={qa.label}
+            type="button"
+            onClick={() => navigate(qa.path)}
+            className={cn(
+              'group flex items-center gap-2.5 p-3 rounded-xl',
+              'bg-surface-2 border border-line text-sm font-semibold text-body text-left',
+              'transition-all hover:border-line-hover hover:-translate-y-px',
+              'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+            )}
+          >
+            <span className={cn('flex items-center justify-center size-8 rounded-lg shrink-0', qa.tone)}>
+              <qa.icon className="size-4" aria-hidden="true" />
+            </span>
+            <span className="truncate grow">{qa.label}</span>
+            <ChevronRight className="size-3.5 text-muted shrink-0 transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
           </button>
         ))}
       </div>
 
-      {/* ══════════════════════════════════════════
-          SECTION LABEL — DAILY SNAPSHOT
-      ══════════════════════════════════════════ */}
-      <div className="db-section-label">
-        <Activity size={14} />
-        Daily Snapshot
+      {/* Daily snapshot */}
+      <h2 className="text-xs font-bold uppercase tracking-wider text-muted mb-3">Daily snapshot</h2>
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3 mb-7">
+        <StatCard
+          label="Cash collected"
+          tone="success"
+          icon={DollarSign}
+          loading={loading}
+          value={money(stats?.currCash ?? 0)}
+          delta={cash.value}
+          deltaLabel={cash.label}
+        >
+          <DateFilter value={cashDate} onChange={setCashDate} label="Cash collected date" />
+        </StatCard>
+
+        <StatCard
+          label="Members added"
+          tone="accent"
+          icon={UserPlus}
+          loading={loading}
+          value={stats?.currMembersAdded ?? 0}
+          delta={added.value}
+          deltaLabel={added.label}
+        >
+          <DateFilter value={membersAddedDate} onChange={setMembersAddedDate} label="Members added date" />
+        </StatCard>
+
+        <StatCard
+          label="Memberships ending"
+          tone="danger"
+          icon={AlertTriangle}
+          loading={loading}
+          value={stats?.currMembersExpiring ?? 0}
+          delta={expiring.value}
+          deltaLabel={expiring.label}
+        >
+          <DateFilter value={membersExpiringDate} onChange={setMembersExpiringDate} label="Memberships ending date" />
+        </StatCard>
+
+        <StatCard
+          label="Expiring in 3 days"
+          tone="warning"
+          icon={Clock}
+          loading={loading}
+          value={stats?.dueSoonCount ?? 0}
+          deltaLabel="Needs attention"
+        />
       </div>
 
-      {/* ══════════════════════════════════════════
-          KPI CARDS — 3 COLS
-      ══════════════════════════════════════════ */}
-      <div className="db-kpi-grid">
-
-        {/* Cash Collected */}
-        {(() => {
-          const { label, dir } = getDiff(stats.currCash, stats.prevCash, true);
-          return (
-            <div className="db-kpi-card kpi-green">
-              <div className="db-kpi-top">
-                <div className="db-kpi-label">Cash Collected</div>
-                <input type="date" className="db-mini-date" value={cashDate} onChange={e => setCashDate(e.target.value)} />
-              </div>
-              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : formatPKR(stats.currCash)}</div>
-              <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
-                {label}
-              </div>
-              <div className="db-kpi-bg-icon"><DollarSign size={64}/></div>
-            </div>
-          );
-        })()}
-
-        {/* Members Added */}
-        {(() => {
-          const { label, dir } = getDiff(stats.currMembersAdded, stats.prevMembersAdded);
-          return (
-            <div className="db-kpi-card kpi-teal">
-              <div className="db-kpi-top">
-                <div className="db-kpi-label">Members Added</div>
-                <input type="date" className="db-mini-date" value={membersAddedDate} onChange={e => setMembersAddedDate(e.target.value)} />
-              </div>
-              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersAdded}</div>
-              <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
-                {label}
-              </div>
-              <div className="db-kpi-bg-icon"><UserPlus size={64}/></div>
-            </div>
-          );
-        })()}
-
-        {/* Expiring Today */}
-        {(() => {
-          const { label, dir } = getDiff(stats.currMembersExpiring, stats.prevMembersExpiring);
-          return (
-            <div className="db-kpi-card kpi-red">
-              <div className="db-kpi-top">
-                <div className="db-kpi-label">Last Day</div>
-                <input type="date" className="db-mini-date" value={membersExpiringDate} onChange={e => setMembersExpiringDate(e.target.value)} />
-              </div>
-              <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.currMembersExpiring}</div>
-              <div className={`db-kpi-diff diff-${dir}`}>
-                {dir === 'up' && <ArrowUpRight size={12}/>}
-                {dir === 'down' && <ArrowDownRight size={12}/>}
-                {dir === 'neutral' && <Minus size={12}/>}
-                {label}
-              </div>
-              <div className="db-kpi-bg-icon"><AlertTriangle size={64}/></div>
-            </div>
-          );
-        })()}
-
-        {/* Expiring in 3 Days */}
-        <div className="db-kpi-card" style={{ borderTop: '4px solid #fbbf24' }}>
-          <div className="db-kpi-top">
-            <div className="db-kpi-label">Expiring in 3 Days</div>
-          </div>
-          <div className="db-kpi-value">{loading ? <Loader2 className="spin-anim" size={24} style={{ opacity: 0.7 }} /> : stats.dueSoonCount}</div>
-          <div className="db-kpi-diff diff-warning">
-            <Clock size={12}/> Needs attention
-          </div>
-          <div className="db-kpi-bg-icon"><Clock size={64}/></div>
-        </div>
-
+      {/* Monthly strip */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-7">
+        <MonthlyPill icon={TrendingUp} tone="text-success bg-success-soft" label="Monthly revenue"
+          value={loading ? null : money(stats.revenue)} />
+        <MonthlyPill icon={TrendingDown} tone="text-danger bg-danger-soft" label="Total expenses"
+          value={loading ? null : money(stats.expenses)} />
+        <MonthlyPill icon={Users} tone="text-accent bg-accent-soft" label="Active members"
+          value={loading ? null : `${stats.activeMembers}`}
+          suffix={loading ? null : `/ ${stats.totalMembers}`} />
       </div>
 
-      {/* ══════════════════════════════════════════
-          MONTHLY OVERVIEW ROW — 4 STAT PILLS
-      ══════════════════════════════════════════ */}
-      <div className="db-monthly-strip">
-        <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-teal"><TrendingUp size={16}/></div>
-          <div>
-            <div className="db-monthly-label">Monthly Revenue</div>
-            <div className="db-monthly-value text-teal">{formatPKR(stats.revenue)}</div>
-          </div>
-        </div>
-        <div className="db-strip-divider" />
-        <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-red"><TrendingDown size={16}/></div>
-          <div>
-            <div className="db-monthly-label">Total Expenses</div>
-            <div className="db-monthly-value text-red">{formatPKR(stats.expenses)}</div>
-          </div>
-        </div>
-        <div className="db-strip-divider" />
-        <div className="db-monthly-card">
-          <div className="db-monthly-icon icon-purple"><Users size={16}/></div>
-          <div>
-            <div className="db-monthly-label">Active Members</div>
-            <div className="db-monthly-value text-purple">{stats.activeMembers} <span className="db-monthly-of">/ {stats.totalMembers}</span></div>
-          </div>
-        </div>
-      </div>
-
-      {/* ══════════════════════════════════════════
-          MAIN CONTENT — 2 COLUMNS
-      ══════════════════════════════════════════ */}
-      <div className="db-main-grid">
-
-        {/* ── LEFT COL ── */}
-        <div className="db-left-col">
-
-          {/* ─ Recent Payments ─ */}
-          <div className="db-section-label">
-            <CreditCard size={14} />
-            Recent Payments
-          </div>
-          <div className="db-panel">
-            {recentActivity.length > 0 ? (
-              <div className="db-payments-list">
-                {recentActivity.map((p, i) => (
-                  <div key={i} className="db-payment-row">
-                    <div className="db-payment-avatar">
-                      {(p.member_name || 'U').charAt(0).toUpperCase()}
-                    </div>
-                    <div className="db-payment-info">
-                      <div className="db-payment-name">{p.member_name}</div>
-                      <div className="db-payment-date">{formatDateShort(p.payment_date || p.created_at)}</div>
-                    </div>
-                    <div className="db-payment-amount">+{formatPKR(p.amount)}</div>
-                  </div>
-                ))}
+      <div className="grid grid-cols-1 xl:grid-cols-[1.4fr_1fr] gap-4 items-start">
+        <div className="flex flex-col gap-4 min-w-0">
+          {/* Recent payments */}
+          <Card>
+            <CardHeader
+              title="Recent payments"
+              action={
+                <Button variant="ghost" size="sm" onClick={() => navigate('/payments')}>
+                  View all
+                  <ChevronRight className="size-3.5" aria-hidden="true" />
+                </Button>
+              }
+            />
+            {loading ? (
+              <div className="flex flex-col gap-3">
+                {[0, 1, 2].map((i) => <Skeleton key={i} className="h-12" />)}
               </div>
+            ) : stats.recentActivity.length === 0 ? (
+              <EmptyState icon={CreditCard} title="No payments yet" description="Collected fees will appear here." className="py-8" />
             ) : (
-              <div className="db-empty">No recent payments recorded.</div>
+              <ul className="flex flex-col divide-y divide-line -my-2">
+                {stats.recentActivity.map((p) => (
+                  <li key={p.id} className="flex items-center gap-3 py-2.5">
+                    <Avatar name={p.member_name} size="sm" />
+                    <div className="grow min-w-0">
+                      <p className="text-sm font-semibold text-heading truncate">{p.member_name}</p>
+                      <p className="text-xs text-muted">{formatDateShort(p.payment_date || p.created_at)}</p>
+                    </div>
+                    <span className="text-sm font-bold text-success tabular-nums shrink-0">
+                      +{money(p.amount)}
+                    </span>
+                  </li>
+                ))}
+              </ul>
             )}
-            <button className="db-view-all-btn" onClick={() => navigate('/payments')}>
-              View All Payments <ChevronRight size={14}/>
-            </button>
-          </div>
+          </Card>
 
-          {/* ─ Charts Panel ─ */}
-          <div className="db-section-label" style={{ marginTop: 8 }}>
-            <BarChart3 size={14} />
-            Analytics
-          </div>
-          <div className="db-panel db-chart-panel">
-            <div className="db-chart-tabs">
-              {[
-                { key: 'revenue', icon: <BarChart3 size={13}/>, label: 'Revenue vs Expenses' },
-                { key: 'members', icon: <PieChart size={13}/>,  label: 'Members' },
-              ].map(t => (
-                <button key={t.key} className={`db-chart-tab ${activeTab === t.key ? 'active' : ''}`} onClick={() => setActiveTab(t.key)}>
-                  {t.icon}
-                  {t.label}
-                </button>
-              ))}
+          {/* Analytics */}
+          <Card>
+            <div className="flex items-center justify-between gap-3 mb-4 flex-wrap">
+              <h2 className="text-base font-bold text-heading">Analytics</h2>
+              <Tabs
+                size="sm"
+                value={activeTab}
+                onChange={setActiveTab}
+                items={[
+                  { key: 'revenue', label: 'Revenue vs expenses' },
+                  { key: 'members', label: 'Members' },
+                ]}
+              />
             </div>
 
-            <div className="db-chart-body">
-              {activeTab === 'revenue' && (
-                <>
-                  <div className="db-chart-meta">
-                    <div>
-                      <div className="db-chart-title">Revenue vs Expenses</div>
-                      <div className="db-chart-sub">Last 6 months · PKR</div>
-                    </div>
-                    <div className="db-chart-legend">
-                      <span className="db-legend-dot" style={{ background: C_TEAL }}/> Revenue
-                      <span className="db-legend-dot" style={{ background: C_RED, marginLeft: 12 }}/> Expenses
-                    </div>
-                  </div>
-                  <div style={{ height: 240 }}>
-                    <Bar data={revenueChartData} options={{ ...baseOpts, plugins: { ...baseOpts.plugins, tooltip: { ...baseOpts.plugins.tooltip, callbacks: { label: ctx => ` ${formatPKR(ctx.raw)}` } } } }} />
-                  </div>
-                </>
-              )}
-              {activeTab === 'members' && (
-                <>
-                  <div className="db-chart-meta">
-                    <div>
-                      <div className="db-chart-title">Member Distribution</div>
-                      <div className="db-chart-sub">{stats.totalMembers} total members</div>
-                    </div>
-                  </div>
-                  <div className="db-donut-wrap">
-                    <div style={{ width: 200, height: 200, flexShrink: 0 }}>
-                      <Doughnut data={memberDonutData} options={{ responsive: true, maintainAspectRatio: false, cutout: '72%', plugins: { legend: { display: false }, tooltip: { backgroundColor: '#1a2630', cornerRadius: 8 } } }} />
-                    </div>
-                    <div className="db-donut-legend">
-                      {[
-                        { label: 'Active',     count: activeCount,  color: C_GREEN  },
-                        { label: 'Due Soon',   count: dueSoonCount, color: C_AMBER  },
-                        { label: 'Expired',    count: expiredCount, color: C_RED    },
-                        { label: 'No Payment', count: noPayment,    color: '#243447'},
-                      ].map(item => (
-                        <div key={item.label} className="db-legend-row">
-                          <span className="db-legend-swatch" style={{ background: item.color }} />
-                          <span className="db-legend-name">{item.label}</span>
-                          <span className="db-legend-cnt" style={{ color: item.color }}>{item.count}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-
+            {loading ? (
+              <Skeleton className="h-60" />
+            ) : activeTab === 'revenue' ? (
+              <>
+                <div className="flex items-center gap-4 mb-3 text-xs text-muted">
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-accent" aria-hidden="true" />
+                    Revenue
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="size-2 rounded-full bg-danger" aria-hidden="true" />
+                    Expenses
+                  </span>
+                  <span className="ml-auto">Last 6 months</span>
+                </div>
+                <div className="h-60">
+                  <Bar data={revenueChartData} options={chartOptions} />
+                </div>
+              </>
+            ) : (
+              <div className="flex flex-col sm:flex-row items-center gap-6">
+                <div className="size-48 shrink-0">
+                  <Doughnut
+                    data={{
+                      labels: donutSegments.map((s) => s.label),
+                      datasets: [{
+                        data: donutSegments.map((s) => s.count),
+                        backgroundColor: donutSegments.map((s) => s.color),
+                        borderColor: c.surface2,
+                        borderWidth: 3,
+                        hoverOffset: 8,
+                      }],
+                    }}
+                    options={{
+                      responsive: true,
+                      maintainAspectRatio: false,
+                      cutout: '72%',
+                      plugins: {
+                        legend: { display: false },
+                        tooltip: { backgroundColor: c.surface3, titleColor: c.heading, bodyColor: c.body, cornerRadius: 8 },
+                      },
+                    }}
+                  />
+                </div>
+                <ul className="flex flex-col gap-2.5 grow w-full">
+                  {donutSegments.map((seg) => (
+                    <li key={seg.label} className="flex items-center gap-2.5 text-sm">
+                      <span className="size-2.5 rounded-sm shrink-0" style={{ background: seg.color }} aria-hidden="true" />
+                      <span className="text-body grow">{seg.label}</span>
+                      <span className="font-bold text-heading tabular-nums">{seg.count}</span>
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </Card>
         </div>
 
-        {/* ── RIGHT COL ── */}
-        <div className="db-right-col">
+        {/* Right column */}
+        <div className="flex flex-col gap-4 min-w-0">
+          <Card>
+            <CardHeader title="Membership status" />
+            <div className="flex flex-col gap-2">
+              <StatusRow
+                icon={AlertCircle} tone="danger" label="Expired" hint="View and follow up"
+                count={stats?.expiredCount} loading={loading}
+                onClick={() => navigate('/members?status=expired')}
+              />
+              <StatusRow
+                icon={Clock} tone="warning" label="Expiring in 3 days" hint="Needs attention"
+                count={stats?.dueSoonCount} loading={loading}
+                onClick={() => navigate('/members?status=due_soon')}
+              />
+              <StatusRow
+                icon={Users} tone="success" label="Active" hint={loading ? '' : `of ${stats.totalMembers} total`}
+                count={stats?.activeMembers} loading={loading}
+                onClick={() => navigate('/members?status=active')}
+              />
+            </div>
+          </Card>
 
-          {/* ─ Membership Status ─ */}
-          <div className="db-section-label">
-            <AlertCircle size={14} />
-            Membership Status
-          </div>
-          <div className="db-panel">
-            <div className="db-status-list">
-              <div className="db-status-row status-danger" onClick={() => navigate('/members?status=expired')}>
-                <div className="db-status-left">
-                  <div className="db-status-icon"><AlertCircle size={16}/></div>
-                  <div>
-                    <div className="db-status-label">Total Expired</div>
-                    <div className="db-status-hint">Click to view</div>
+          <Card>
+            <CardHeader title="This month" />
+            {loading ? (
+              <Skeleton className="h-28" />
+            ) : (
+              <dl className="flex flex-col gap-2.5 text-sm">
+                <div className="flex items-center justify-between">
+                  <dt className="text-body font-medium">Revenue</dt>
+                  <dd className="font-bold text-success tabular-nums">{money(stats.revenue)}</dd>
+                </div>
+                <div className="flex flex-col gap-1.5 pl-3 border-l-2 border-line">
+                  <div className="flex items-center justify-between text-xs">
+                    <dt className="text-muted">General expenses</dt>
+                    <dd className="text-body tabular-nums">{money(stats.generalExpenses)}</dd>
+                  </div>
+                  <div className="flex items-center justify-between text-xs">
+                    <dt className="text-muted">Staff salaries</dt>
+                    <dd className="text-body tabular-nums">{money(stats.salaryTotal)}</dd>
                   </div>
                 </div>
-                <div className="db-status-count">{stats.expiredCount}</div>
-              </div>
-
-              <div className="db-status-row status-warning">
-                <div className="db-status-left">
-                  <div className="db-status-icon"><Clock size={16}/></div>
-                  <div>
-                    <div className="db-status-label">Expiring in 3 Days</div>
-                    <div className="db-status-hint">Needs attention</div>
-                  </div>
+                <div className="flex items-center justify-between">
+                  <dt className="text-body font-medium">Total expenses</dt>
+                  <dd className="font-bold text-danger tabular-nums">{money(stats.expenses)}</dd>
                 </div>
-                <div className="db-status-count">{stats.dueSoonCount}</div>
-              </div>
-
-              <div className="db-status-row status-success">
-                <div className="db-status-left">
-                  <div className="db-status-icon"><Users size={16}/></div>
-                  <div>
-                    <div className="db-status-label">Active Members</div>
-                    <div className="db-status-hint">Out of {stats.totalMembers} total</div>
-                  </div>
+                <div className="flex items-center justify-between pt-2.5 border-t border-line">
+                  <dt className="text-heading font-semibold">Profit</dt>
+                  <dd className={cn('font-bold tabular-nums', stats.profit >= 0 ? 'text-success' : 'text-danger')}>
+                    {money(stats.profit)}
+                  </dd>
                 </div>
-                <div className="db-status-count">{stats.activeMembers}</div>
-              </div>
-            </div>
-          </div>
+              </dl>
+            )}
+          </Card>
 
-          {/* ─ Monthly Financials ─ */}
-          <div className="db-section-label" style={{ marginTop: 8 }}>
-            <DollarSign size={14} />
-            Monthly Financials
-          </div>
-          <div className="db-panel">
-            <div className="db-fin-row">
-              <span className="db-fin-label">Revenue</span>
-              <span className="db-fin-val text-teal">{formatPKR(stats.revenue)}</span>
-            </div>
-            <div className="db-fin-breakdown">
-              <div className="db-fin-sub-row">
-                <span className="db-fin-sub-label">General Expenses</span>
-                <span className="db-fin-sub-val">{formatPKR(stats.generalExpenses)}</span>
-              </div>
-              <div className="db-fin-sub-row">
-                <span className="db-fin-sub-label">Staff Salaries</span>
-                <span className="db-fin-sub-val">{formatPKR(stats.salaryTotal)}</span>
-              </div>
-            </div>
-            <div className="db-fin-row">
-              <span className="db-fin-label">Total Expenses</span>
-              <span className="db-fin-val text-red">{formatPKR(stats.expenses)}</span>
-            </div>
-          </div>
-
-          {/* ─ Popular Plans ─ */}
-          <div className="db-section-label" style={{ marginTop: 8 }}>
-            <Flame size={14} />
-            Popular Plans — This Month
-          </div>
-          <div className="db-panel">
-            {popularPlans.length > 0 ? (
-              <div className="db-plans-list">
-                {popularPlans.map((plan, idx) => {
-                  const maxRevenue = popularPlans[0].revenue;
-                  const pct = maxRevenue > 0 ? (plan.revenue / maxRevenue) * 100 : 0;
+          <Card>
+            <CardHeader title="Popular plans" subtitle="This month" />
+            {loading ? (
+              <Skeleton className="h-24" />
+            ) : stats.popularPlans.length === 0 ? (
+              <EmptyState icon={Flame} title="No plans sold yet" description="Sales this month will show up here." className="py-6" />
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {stats.popularPlans.map((plan) => {
+                  const max = stats.popularPlans[0].revenue;
+                  const pct = max > 0 ? (plan.revenue / max) * 100 : 0;
                   return (
-                    <div key={idx} className="db-plan-item">
-                      <div className="db-plan-header">
-                        <div>
-                          <div className="db-plan-label">{plan.label}</div>
-                          <div className="db-plan-count">{plan.count} purchase{plan.count !== 1 ? 's' : ''}</div>
-                        </div>
-                        <div className="db-plan-revenue">{formatPKR(plan.revenue)}</div>
+                    <li key={plan.label}>
+                      <div className="flex items-baseline justify-between gap-2 mb-1.5">
+                        <span className="text-sm font-semibold text-heading truncate">{plan.label}</span>
+                        <span className="text-sm font-bold text-heading tabular-nums shrink-0">{money(plan.revenue)}</span>
                       </div>
-                      <div className="db-plan-bar-track">
-                        <div className="db-plan-bar-fill" style={{ width: `${pct}%` }} />
+                      <div className="h-1.5 rounded-full bg-surface-3 overflow-hidden">
+                        <div className="h-full rounded-full bg-accent transition-[width] duration-500" style={{ width: `${pct}%` }} />
                       </div>
-                    </div>
+                      <p className="text-xs text-muted mt-1">
+                        {plan.count} purchase{plan.count !== 1 ? 's' : ''}
+                      </p>
+                    </li>
                   );
                 })}
-              </div>
-            ) : (
-              <div className="db-empty">No plans sold this month.</div>
+              </ul>
             )}
-          </div>
-
+          </Card>
         </div>
       </div>
+    </Page>
+  );
+}
 
+function DateFilter({ value, onChange, label }) {
+  return (
+    <input
+      type="date"
+      value={value}
+      aria-label={label}
+      onChange={(e) => onChange(e.target.value)}
+      className={cn(
+        'mt-3 w-full bg-surface-3 border border-line rounded-md px-2 py-1',
+        'text-xs text-body',
+        'focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent/30'
+      )}
+    />
+  );
+}
+
+function MonthlyPill({ icon: Icon, tone, label, value, suffix }) {
+  return (
+    <div className="flex items-center gap-3 p-3.5 bg-surface-2 border border-line rounded-xl">
+      <span className={cn('flex items-center justify-center size-9 rounded-lg shrink-0', tone)}>
+        <Icon className="size-4" aria-hidden="true" />
+      </span>
+      <div className="min-w-0">
+        <p className="text-xs text-muted font-medium">{label}</p>
+        {value === null ? (
+          <Skeleton className="h-5 w-20 mt-1" />
+        ) : (
+          <p className="text-lg font-bold text-heading font-display tabular-nums leading-tight">
+            {value}
+            {suffix && <span className="text-sm font-medium text-muted ml-1">{suffix}</span>}
+          </p>
+        )}
+      </div>
     </div>
+  );
+}
+
+const STATUS_TONES = {
+  danger: 'text-danger bg-danger-soft',
+  warning: 'text-warning bg-warning-soft',
+  success: 'text-success bg-success-soft',
+};
+
+function StatusRow({ icon: Icon, tone, label, hint, count, loading, onClick }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={cn(
+        'flex items-center gap-3 p-3 rounded-xl border border-line text-left',
+        'transition-colors hover:bg-surface-3 hover:border-line-hover',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent'
+      )}
+    >
+      <span className={cn('flex items-center justify-center size-9 rounded-lg shrink-0', STATUS_TONES[tone])}>
+        <Icon className="size-4" aria-hidden="true" />
+      </span>
+      <span className="grow min-w-0">
+        <span className="block text-sm font-semibold text-heading">{label}</span>
+        {hint && <span className="block text-xs text-muted">{hint}</span>}
+      </span>
+      {loading ? (
+        <Skeleton className="h-6 w-8" />
+      ) : (
+        <span className="text-xl font-bold text-heading font-display tabular-nums shrink-0">{count}</span>
+      )}
+    </button>
   );
 }

@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { STORAGE_KEYS } from './storageKeys';
 
 const api = axios.create({
   baseURL: import.meta.env.VITE_API_URL || '/api',
@@ -12,7 +13,7 @@ const api = axios.create({
 // Request interceptor to attach JWT token and bust HTTP caches
 api.interceptors.request.use(
   (config) => {
-    const saved = localStorage.getItem('core_gym_user');
+    const saved = localStorage.getItem(STORAGE_KEYS.user);
     if (saved) {
       const user = JSON.parse(saved);
       if (user.token) {
@@ -59,10 +60,10 @@ api.interceptors.response.use(
 
       if (!isAuthPath) {
         if (status === 403 && data?.isSuspended) {
-          localStorage.removeItem('core_gym_user');
+          localStorage.removeItem(STORAGE_KEYS.user);
           window.location.href = '/login?suspended=1';
         } else if (status === 401) {
-          localStorage.removeItem('core_gym_user');
+          localStorage.removeItem(STORAGE_KEYS.user);
           window.location.href = '/login?expired=1';
         }
       }

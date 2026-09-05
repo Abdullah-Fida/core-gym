@@ -1,105 +1,114 @@
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, Building2, AlertTriangle, CreditCard, LogOut, MessageSquare, Menu, X, Sun, Moon } from 'lucide-react';
-import { useState, useEffect } from 'react';
+import { LayoutDashboard, Building2, AlertTriangle, CreditCard, LogOut, Receipt, Layers } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
-import { toggleMode, getActiveMode } from '../../lib/theme';
+import { APP_NAME } from '../../lib/constants';
+import { LogoMark } from '../ui/Logo';
 import BottomNav from './BottomNav';
-import MoreDrawer from './MoreDrawer';
-import './layout.css';
-import '../../styles/admin.css';
+import AppHeader from './AppHeader';
+import Button from '../ui/Button';
+import { cn } from '../../lib/cn';
+
+const NAV_SECTIONS = [
+  {
+    title: 'Overview',
+    items: [
+      { to: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+      { to: '/admin/gyms', icon: Building2, label: 'All Gyms' },
+    ],
+  },
+  {
+    title: 'Management',
+    items: [
+      { to: '/admin/alerts', icon: AlertTriangle, label: 'Alerts' },
+      { to: '/admin/subscriptions', icon: CreditCard, label: 'Subscriptions' },
+      { to: '/admin/plans', icon: Layers, label: 'Plans' },
+      { to: '/admin/payments', icon: Receipt, label: 'Platform Payments' },
+    ],
+  },
+];
+
+const itemClasses = (active) =>
+  cn(
+    'flex items-center gap-3 w-full px-3 py-2.5 rounded-lg text-sm font-medium transition-colors',
+    'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset',
+    active ? 'bg-accent-soft text-accent font-semibold' : 'text-muted hover:text-heading hover:bg-surface-3'
+  );
 
 export default function AdminLayout() {
   const { logout } = useAuth();
   const navigate = useNavigate();
-  const [isMoreOpen, setIsMoreOpen] = useState(false);
-  const [isSidebarOpen, setIsSidebarOpen] = useState(false);
-  const [mode, setMode] = useState(getActiveMode());
-
-  const handleToggleMode = () => {
-    const nextMode = toggleMode();
-    setMode(nextMode);
-  };
 
   return (
-    <div className="admin-layout">
-      {/* Desktop Sidebar */}
-      <aside className={`admin-sidebar ${isSidebarOpen ? 'open' : ''}`}>
-        <div className="admin-sidebar-logo" onClick={() => navigate('/admin/dashboard')}>
-          <div className="logo-glitch-container">
-            <div className="logo-icon-premium">CG</div>
+    <div className="flex min-h-screen bg-surface">
+      {/*
+        The old sidebar had an `open` state driven by a hamburger button, but
+        `layout.css` set `.admin-sidebar { display: none !important }` below
+        1024px — the !important won, so the toggle did nothing on mobile. Admin
+        navigation on small screens goes through BottomNav instead, which is
+        what actually worked.
+      */}
+      <aside className="hidden lg:flex flex-col shrink-0 w-(--sidebar-width) h-screen sticky top-0 bg-surface-2 border-r border-line">
+        <div className="flex items-center gap-3 px-4 h-(--nav-height) border-b border-line shrink-0">
+          <LogoMark />
+          <div className="min-w-0">
+            <p className="text-sm font-extrabold uppercase tracking-[0.14em] text-heading font-display truncate leading-tight">
+              {APP_NAME}
+            </p>
+            <p className="flex items-center gap-1.5 text-[0.625rem] font-bold uppercase tracking-wider text-accent">
+              <span className="size-1.5 rounded-full bg-accent" aria-hidden="true" />
+              Super Admin
+            </p>
           </div>
-          <div className="logo-text">
-            <div className="brand-name">CORE <span>GYM</span></div>
-            <div className="admin-badge-premium">
-              <div className="dot"></div>
-              SUPER ADMIN
+        </div>
+
+        <nav className="flex-1 overflow-y-auto px-3 py-4 flex flex-col gap-5" aria-label="Admin navigation">
+          {NAV_SECTIONS.map((section) => (
+            <div key={section.title} className="flex flex-col gap-0.5">
+              <h2 className="px-3 mb-1 text-[0.6875rem] font-bold uppercase tracking-wider text-muted">
+                {section.title}
+              </h2>
+              {section.items.map((item) => (
+                <NavLink key={item.to} to={item.to} className={({ isActive }) => itemClasses(isActive)}>
+                  <item.icon className="size-5 shrink-0" aria-hidden="true" />
+                  <span className="truncate">{item.label}</span>
+                </NavLink>
+              ))}
             </div>
-          </div>
-        </div>
+          ))}
+        </nav>
 
-        <div className="admin-nav-section">
-          <div className="admin-nav-section-title">Overview</div>
-          <NavLink to="/admin/dashboard" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>
-            <LayoutDashboard size={20} /> Dashboard
-          </NavLink>
-          <NavLink to="/admin/gyms" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>
-            <Building2 size={20} /> All Gyms
-          </NavLink>
-        </div>
-
-        <div className="admin-nav-section">
-          <div className="admin-nav-section-title">Management</div>
-          <NavLink to="/admin/alerts" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>
-            <AlertTriangle size={20} /> Alerts
-          </NavLink>
-          <NavLink to="/admin/subscriptions" className={({ isActive }) => `admin-nav-item ${isActive ? 'active' : ''}`}>
-            <CreditCard size={20} /> Subscriptions
-          </NavLink>
-        </div>
-
-        <div className="admin-sidebar-footer">
-          <button
-            className="btn btn-secondary btn-block btn-sm admin-sidebar-logout"
-            onClick={() => { logout(); navigate('/login'); }}
+        <div className="p-3 border-t border-line shrink-0">
+          <Button
+            variant="secondary"
+            size="sm"
+            block
+            className="hover:text-danger hover:border-danger/40"
+            onClick={() => {
+              logout();
+              navigate('/login');
+            }}
           >
-            <LogOut size={16} style={{ marginRight: 8 }} /> Logout
-          </button>
+            <LogOut className="size-4" aria-hidden="true" />
+            Logout
+          </Button>
         </div>
       </aside>
 
-      {/* Main Content Area */}
-      <div className="admin-main">
-        {/* Mobile Header */}
-        <header className="admin-topbar">
-          <div className="admin-header-left">
-            <button className="sidebar-toggle" onClick={() => setIsSidebarOpen(!isSidebarOpen)}>
-              {isSidebarOpen ? <X size={20} /> : <Menu size={20} />}
-            </button>
-            
-            <div className="admin-header-logo-container" onClick={() => navigate('/admin/dashboard')}>
-              <div className="logo-icon-premium-sm">CG</div>
-              <div className="brand-name">CORE <span>GYM</span></div>
-            </div>
-          </div>
+      <div className="flex flex-col grow min-w-0 h-screen">
+        <AppHeader
+          homePath="/admin/dashboard"
+          badge={
+            <span className="hidden sm:inline-flex items-center gap-1.5 ml-2 px-2 py-0.5 rounded-full bg-accent-soft text-accent text-[0.625rem] font-bold uppercase tracking-wider">
+              Super Admin
+            </span>
+          }
+        />
 
-          <div className="admin-header-actions">
-             <button className="mode-toggle" onClick={handleToggleMode} title="Toggle Theme">
-                {mode === 'dark' ? <Sun size={18} /> : <Moon size={18} />}
-             </button>
-             <button className="btn btn-icon desktop-only" onClick={() => { logout(); navigate('/login'); }} title="Logout">
-               <LogOut size={18} />
-             </button>
-          </div>
-        </header>
-
-        <main className="admin-content-scroller">
-          <div className="admin-container">
-            <Outlet />
-          </div>
+        <main className="grow overflow-y-auto overflow-x-hidden">
+          <Outlet />
         </main>
 
-        <BottomNav onMoreClick={() => setIsMoreOpen(true)} />
-        <MoreDrawer isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
+        <BottomNav />
       </div>
     </div>
   );

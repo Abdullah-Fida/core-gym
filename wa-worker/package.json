@@ -1,0 +1,23 @@
+{
+  "name": "batgos-wa-worker",
+  "version": "1.0.0",
+  "private": true,
+  "description": "WhatsApp automation worker for Batgos. Runs as its own long-lived process — it holds a persistent socket per gym and cannot run on a serverless platform.",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0",
+    "@whiskeysockets/baileys": "^6.7.24",
+    "dotenv": "^16.4.5",
+    "express": "^4.21.2",
+    "node-cron": "^3.0.3",
+    "pino": "^9.5.0",
+    "qrcode": "^1.5.4"
+  }
+}
