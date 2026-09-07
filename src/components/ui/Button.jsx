@@ -19,12 +19,18 @@ const VARIANTS = {
     'bg-transparent text-accent border border-accent/40 hover:bg-accent-soft hover:border-accent',
 };
 
+/**
+ * `pointer-coarse:` raises every control to a 44px hit area on touch screens
+ * while leaving the desktop sizing compact. A mobile audit found buttons as
+ * small as 20px tall, which is roughly half the minimum a finger can hit
+ * reliably.
+ */
 const SIZES = {
-  sm: 'h-8 px-3 text-xs gap-1.5 rounded-md',
-  md: 'h-10 px-4 text-sm gap-2 rounded-lg',
+  sm: 'h-8 px-3 text-xs gap-1.5 rounded-md pointer-coarse:h-11 pointer-coarse:px-4 pointer-coarse:text-sm',
+  md: 'h-10 px-4 text-sm gap-2 rounded-lg pointer-coarse:h-11',
   lg: 'h-12 px-6 text-base gap-2 rounded-lg',
-  icon: 'h-10 w-10 p-0 rounded-lg',
-  'icon-sm': 'h-8 w-8 p-0 rounded-md',
+  icon: 'h-10 w-10 p-0 rounded-lg pointer-coarse:h-11 pointer-coarse:w-11',
+  'icon-sm': 'h-8 w-8 p-0 rounded-md pointer-coarse:h-11 pointer-coarse:w-11',
 };
 
 /**

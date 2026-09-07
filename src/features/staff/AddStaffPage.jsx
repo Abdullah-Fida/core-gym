@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Save } from 'lucide-react';
 import api from '../../lib/api';
 import { generateId, todayStr } from '../../lib/utils';
@@ -16,7 +16,14 @@ const EMPTY = {
 export default function AddStaffPage() {
   const navigate = useNavigate();
   const toast = useToast();
-  const [form, setForm] = useState(EMPTY);
+  const [searchParams] = useSearchParams();
+
+  // Reached from the Trainers page as /staff/add?role=trainer, so the role is
+  // preselected and saving returns there rather than dumping you in Staff.
+  const presetRole = searchParams.get('role');
+  const cameFromTrainers = presetRole === 'trainer';
+
+  const [form, setForm] = useState(() => (presetRole ? { ...EMPTY, role: presetRole } : EMPTY));
   const [loading, setLoading] = useState(false);
   const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
 
@@ -44,7 +51,7 @@ export default function AddStaffPage() {
       });
       toast.success(`${form.name} added to staff.`);
       clearDraft();
-      navigate('/staff');
+      navigate(cameFromTrainers ? '/trainers' : '/staff');
     } catch (err) {
       toast.error(err.response?.data?.message || 'Could not add this staff member.');
       setLoading(false);

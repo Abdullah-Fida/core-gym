@@ -30,6 +30,8 @@ export default function Tabs({ items, value, onChange, className, size = 'md' })
               'inline-flex items-center gap-1.5 rounded-md font-semibold whitespace-nowrap',
               'transition-colors duration-150',
               'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent',
+              // Touch screens get a 44px row; desktop keeps the compact height.
+              'pointer-coarse:min-h-11 pointer-coarse:px-4 pointer-coarse:text-sm',
               size === 'sm' ? 'px-2.5 py-1 text-xs' : 'px-3 py-1.5 text-sm',
               active
                 ? 'bg-accent text-accent-contrast'

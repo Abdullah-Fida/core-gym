@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Dumbbell, Users, Wallet, Package, ArrowRight } from 'lucide-react';
+import { Dumbbell, Users, Wallet, Package, ArrowRight, Plus } from 'lucide-react';
 import api from '../../lib/api';
 import { useToast } from '../../contexts/ToastContext';
 import { useMoney } from '../../hooks/useMoney';
@@ -68,6 +68,17 @@ export default function TrainersPage() {
       <PageHeader
         title="Trainers"
         subtitle="Assignments, personal-training packages and commission."
+        actions={
+          // The only way to add a trainer used to be the button inside the
+          // empty state, so once the first one existed there was no way to add
+          // a second.
+          tab === 'trainers' ? (
+            <Button onClick={() => navigate('/staff/add?role=trainer')}>
+              <Plus className="size-4" aria-hidden="true" />
+              Add trainer
+            </Button>
+          ) : null
+        }
       />
 
       <Tabs
@@ -105,7 +116,12 @@ export default function TrainersPage() {
               icon={Dumbbell}
               title="No trainers yet"
               description="Add a staff member with the Trainer role, then assign them to members."
-              action={<Button onClick={() => navigate('/staff/add')}>Add staff</Button>}
+              action={
+                <Button onClick={() => navigate('/staff/add?role=trainer')}>
+                  <Plus className="size-4" aria-hidden="true" />
+                  Add your first trainer
+                </Button>
+              }
             />
           ) : (
             <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">

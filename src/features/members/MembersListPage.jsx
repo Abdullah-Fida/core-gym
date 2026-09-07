@@ -189,7 +189,7 @@ export default function MembersListPage() {
           <Tabs items={tabsWithCounts} value={statusFilter} onChange={setStatusFilter} size="sm" />
           <Select
             aria-label="Sort members"
-            className="w-auto text-xs py-1.5"
+            className="w-auto text-xs sm:py-1.5"
             value={sort}
             onChange={(e) => setSort(e.target.value)}
           >

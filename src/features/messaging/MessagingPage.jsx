@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   MessageCircle, QrCode, Power, RefreshCw, Plus, Pencil, Trash2,
-  ShieldAlert, Check, X,
+  Check, X,
 } from 'lucide-react';
 import api from '../../lib/api';
 import { useToast } from '../../contexts/ToastContext';
@@ -241,17 +241,6 @@ export default function MessagingPage() {
               ))}
             </div>
 
-            {automated && (
-              <p className="flex items-start gap-2 mt-4 p-3 rounded-lg bg-warning-soft text-warning text-sm">
-                <ShieldAlert className="size-4 shrink-0 mt-0.5" aria-hidden="true" />
-                <span>
-                  Automated sending connects your number through an unofficial WhatsApp
-                  interface. WhatsApp does not permit this, and numbers that send in bulk
-                  can be banned. Use a dedicated business number, keep the daily cap low,
-                  and expect to reconnect from time to time.
-                </span>
-              </p>
-            )}
           </Card>
 
           {automated && (
