@@ -11,7 +11,12 @@ export default defineConfig({
     VitePWA({
       registerType: 'autoUpdate',
       devOptions: {
-        enabled: true
+        // Off in development. The plugin generates dev-dist/ and registers a
+        // service worker there; when that folder is absent or stale the dev
+        // server throws an ENOENT overlay over the app, and a SW caching
+        // assets in dev only makes changes appear not to take effect.
+        // The production build still ships the full PWA.
+        enabled: false
       },
       includeAssets: ['favicon.ico', 'apple-touch-icon.png', 'mask-icon.svg'],
       manifest: {

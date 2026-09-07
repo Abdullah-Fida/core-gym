@@ -34,7 +34,8 @@ export default function BottomNav({ onMoreClick }) {
   return (
     <nav
       className={cn(
-        'lg:hidden fixed bottom-0 inset-x-0 z-[600]',
+        // Chrome tier, below modals. At z-600 this covered every dialog.
+        'lg:hidden fixed bottom-0 inset-x-0 z-200',
         'flex items-stretch',
         'bg-surface-2/95 backdrop-blur-lg border-t border-line',
         'pb-safe'

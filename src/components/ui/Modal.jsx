@@ -95,7 +95,7 @@ export default function Modal({
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[400] flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 z-400 flex items-end sm:items-center justify-center p-0 sm:p-4"
       onKeyDown={handleKeyDown}
     >
       <div
@@ -142,7 +142,7 @@ export default function Modal({
           </div>
         )}
 
-        <div className="px-5 pb-5 overflow-y-auto grow">{children}</div>
+        <div className="px-5 pb-5 overflow-y-auto overscroll-contain grow pb-safe sm:pb-5">{children}</div>
 
         {footer && (
           <div className="flex gap-2 p-5 pt-3 border-t border-line shrink-0 pb-safe sm:pb-5">
