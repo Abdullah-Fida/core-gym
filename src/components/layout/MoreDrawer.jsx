@@ -1,6 +1,7 @@
 import {
   Receipt, Users, CalendarDays, Settings, LogOut, BarChart3,
   UserPlus, ShoppingCart, Dumbbell, MessageCircle, DatabaseBackup,
+  CreditCard, Layers,
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
@@ -29,8 +30,16 @@ const MENU_ITEMS = [
   { icon: Settings, label: 'Settings', path: '/settings', tone: 'text-muted bg-surface-3' },
 ];
 
+// The admin sidebar's remaining destinations. Without these the super admin
+// could only reach Overview, Gyms and Alerts on a phone.
+const ADMIN_ITEMS = [
+  { icon: CreditCard, label: 'Subscriptions', path: '/admin/subscriptions', tone: 'text-accent bg-accent-soft' },
+  { icon: Layers, label: 'Plans', path: '/admin/plans', tone: 'text-info bg-info-soft' },
+  { icon: Receipt, label: 'Payments', path: '/admin/payments', tone: 'text-success bg-success-soft' },
+];
+
 export default function MoreDrawer({ isOpen, onClose }) {
-  const { logout } = useAuth();
+  const { logout, isAdmin } = useAuth();
   const navigate = useNavigate();
 
   const go = (path) => {
@@ -41,7 +50,7 @@ export default function MoreDrawer({ isOpen, onClose }) {
   return (
     <Modal open={isOpen} onClose={onClose} title="All areas" size="md">
       <div className="grid grid-cols-3 gap-2">
-        {MENU_ITEMS.map((item) => (
+        {(isAdmin ? ADMIN_ITEMS : MENU_ITEMS).map((item) => (
           <button
             key={item.label}
             type="button"

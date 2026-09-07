@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { Outlet, NavLink, useNavigate } from 'react-router-dom';
 import { LayoutDashboard, Building2, AlertTriangle, CreditCard, LogOut, Receipt, Layers } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { APP_NAME } from '../../lib/constants';
 import { LogoMark } from '../ui/Logo';
 import BottomNav from './BottomNav';
+import MoreDrawer from './MoreDrawer';
 import AppHeader from './AppHeader';
 import Button from '../ui/Button';
 import { cn } from '../../lib/cn';
@@ -37,6 +39,7 @@ const itemClasses = (active) =>
 export default function AdminLayout() {
   const { logout } = useAuth();
   const navigate = useNavigate();
+  const [isMoreOpen, setIsMoreOpen] = useState(false);
 
   return (
     <div className="flex min-h-screen bg-surface">
@@ -108,7 +111,8 @@ export default function AdminLayout() {
           <Outlet />
         </main>
 
-        <BottomNav />
+        <BottomNav onMoreClick={() => setIsMoreOpen(true)} />
+        <MoreDrawer isOpen={isMoreOpen} onClose={() => setIsMoreOpen(false)} />
       </div>
     </div>
   );

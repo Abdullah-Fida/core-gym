@@ -1,5 +1,5 @@
-import { Users, LayoutGrid, Building2, AlertTriangle, LayoutDashboard, LogOut, Bell } from 'lucide-react';
-import { NavLink, useNavigate } from 'react-router-dom';
+import { Users, LayoutGrid, Building2, AlertTriangle, LayoutDashboard, Bell } from 'lucide-react';
+import { NavLink } from 'react-router-dom';
 import { useAuth } from '../../contexts/AuthContext';
 import { cn } from '../../lib/cn';
 
@@ -28,8 +28,7 @@ const itemClasses = (active) =>
  * previous fixed bar had no safe-area inset and sat underneath it.
  */
 export default function BottomNav({ onMoreClick }) {
-  const { isAdmin, logout } = useAuth();
-  const navigate = useNavigate();
+  const { isAdmin } = useAuth();
   const items = isAdmin ? ADMIN_ITEMS : GYM_ITEMS;
 
   return (
@@ -49,24 +48,14 @@ export default function BottomNav({ onMoreClick }) {
         </NavLink>
       ))}
 
-      {isAdmin ? (
-        <button
-          type="button"
-          className={cn(itemClasses(false), 'text-danger hover:text-danger')}
-          onClick={() => {
-            logout();
-            navigate('/login');
-          }}
-        >
-          <LogOut className="size-5.5" aria-hidden="true" />
-          <span>Logout</span>
-        </button>
-      ) : (
-        <button type="button" className={itemClasses(false)} onClick={onMoreClick}>
-          <LayoutGrid className="size-5.5" aria-hidden="true" />
-          <span>More</span>
-        </button>
-      )}
+      {/* Both roles get "More". Admin previously had a Logout button here
+          instead, which meant Subscriptions, Plans and Platform Payments were
+          unreachable on a phone — the sidebar holding them is hidden below
+          1024px. Log out now lives inside the drawer. */}
+      <button type="button" className={itemClasses(false)} onClick={onMoreClick}>
+        <LayoutGrid className="size-5.5" aria-hidden="true" />
+        <span>More</span>
+      </button>
     </nav>
   );
 }
