@@ -10,6 +10,8 @@ import { getPrinterSettings, savePrinterSettings, printTestPage } from '../../li
 import { STORAGE_KEYS } from '../../lib/storageKeys';
 import { APP_NAME } from '../../lib/constants';
 import { cn } from '../../lib/cn';
+import { usePlan } from '../../contexts/PlanContext';
+import PlanBadge from '../../components/PlanBadge';
 import {
   Page, PageHeader, Card, CardHeader, Button,
   Input, Select, Textarea, Toggle, Skeleton,
@@ -150,6 +152,8 @@ export default function SettingsPage() {
     }
   };
 
+  const { plan, memberCount } = usePlan();
+
   if (loading || !form) {
     return (
       <Page width="narrow">
@@ -165,6 +169,46 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle={user?.gym_name} />
 
       <div className="flex flex-col gap-4">
+        <Card padding="lg">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-sm font-bold text-heading">Current Plan</h3>
+              <p className="text-xs text-muted">Manage your subscription and limits</p>
+            </div>
+            <PlanBadge className="text-xs px-2 py-1 rounded-full" />
+          </div>
+          
+          <div className="bg-surface-2 border border-line rounded-xl p-4 mb-4">
+            <div className="flex justify-between items-end mb-2">
+              <span className="text-sm font-semibold text-heading">Member Limit</span>
+              <span className="text-xs font-medium text-muted">
+                <strong className="text-heading text-sm">{memberCount}</strong> 
+                {plan?.member_limit ? ` / ${plan.member_limit}` : ' / Unlimited'}
+              </span>
+            </div>
+            {plan?.member_limit ? (
+              <div className="h-2 w-full bg-surface-3 rounded-full overflow-hidden">
+                <div 
+                  className={cn(
+                    "h-full rounded-full transition-all",
+                    memberCount >= plan.member_limit ? "bg-danger" : 
+                    memberCount >= plan.member_limit * 0.8 ? "bg-warning" : "bg-success"
+                  )} 
+                  style={{ width: `${Math.min(100, (memberCount / plan.member_limit) * 100)}%` }} 
+                />
+              </div>
+            ) : null}
+          </div>
+
+          <Button 
+            block 
+            onClick={() => window.open('mailto:support@batgos.com?subject=Upgrade%20Plan', '_blank')}
+            className="bg-gradient-to-r from-accent to-accent-hover"
+          >
+            Upgrade Plan
+          </Button>
+        </Card>
+
         <Card padding="lg">
           <CardHeader title="Gym information" subtitle="Appears on receipts and member messages" />
           <form className="flex flex-col gap-4" onSubmit={handleSave}>

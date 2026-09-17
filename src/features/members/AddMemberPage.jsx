@@ -8,10 +8,12 @@ import { PLAN_DURATIONS, PAYMENT_METHODS, APP_NAME } from '../../lib/constants';
 import { useToast } from '../../contexts/ToastContext';
 import { useFormDraft } from '../../hooks/useFormDraft';
 import { cn } from '../../lib/cn';
+import { usePlan } from '../../contexts/PlanContext';
 import {
   Page, PageHeader, BackLink, Card, Button, Badge, Avatar,
   Input, Textarea, Tabs, Toggle,
 } from '../../components/ui';
+import { Lock, Zap, ShieldAlert } from 'lucide-react';
 import ReceiptModal from '../payments/ReceiptModal';
 import { parseReceiptReason, stripReceiptMarkers } from '../payments/receiptText';
 
@@ -131,6 +133,8 @@ export default function AddMemberPage() {
       : calculateExpiryDate(payForm.payment_date, payForm.plan_duration_months);
   })();
 
+  const { isAtMemberLimit, plan, refreshPlan } = usePlan();
+  
   const handleMemberSubmit = async (e) => {
     e.preventDefault();
     if (loading) return;
@@ -149,6 +153,7 @@ export default function AddMemberPage() {
       const serverMember = res.data.data;
       setForm((p) => ({ ...p, newMember: serverMember, step: 2 }));
       toast.success(`${serverMember.name} added.`);
+      refreshPlan(); // Refresh count after adding member
     } catch (err) {
       console.error(err);
       toast.error(err.response?.data?.message || 'Could not add this member.');
@@ -301,7 +306,35 @@ export default function AddMemberPage() {
 
       <StepIndicator step={step} />
 
-      {step === 1 && (
+      {step === 1 && isAtMemberLimit() && (
+        <Card padding="lg">
+          <div className="flex flex-col items-center justify-center p-4 text-center">
+            <div className="flex items-center justify-center size-16 rounded-full bg-warning-soft text-warning mb-4">
+              <ShieldAlert className="size-8" aria-hidden="true" />
+            </div>
+            
+            <h2 className="text-xl font-bold text-heading mb-2">Member Limit Reached</h2>
+            
+            <p className="text-body max-w-sm mb-6">
+              Your {plan?.name} plan is limited to {plan?.member_limit} members. You must upgrade to add more members to your gym.
+            </p>
+
+            <Button 
+              onClick={() => window.open('mailto:support@batgos.com?subject=Upgrade%20Plan', '_blank')}
+              className="bg-gradient-to-r from-accent to-accent-hover mb-3"
+            >
+              <Zap className="size-4" aria-hidden="true" />
+              Upgrade to Pro
+            </Button>
+            
+            <Button variant="secondary" onClick={() => navigate('/members')}>
+              Back to members
+            </Button>
+          </div>
+        </Card>
+      )}
+
+      {step === 1 && !isAtMemberLimit() && (
         <Card padding="lg">
           <form className="flex flex-col gap-4" onSubmit={handleMemberSubmit}>
             <Input

@@ -81,6 +81,24 @@ function PublicRoute({ children }) {
   return children;
 }
 
+import { usePlan } from './contexts/PlanContext';
+import UpgradeGate from './components/UpgradeGate';
+import { Page } from './components/ui';
+
+function FeatureRoute({ feature, children, title, description }) {
+  const { canUseFeature } = usePlan();
+  if (!canUseFeature(feature)) {
+    return (
+      <Page>
+        <UpgradeGate featureKey={feature} title={title || "Feature Unavailable"} description={description || "Upgrade your plan to access this feature."}>
+          {null}
+        </UpgradeGate>
+      </Page>
+    );
+  }
+  return children;
+}
+
 function AppRoutes() {
   return (
     <Suspense fallback={<RouteFallback />}>
@@ -92,34 +110,34 @@ function AppRoutes() {
         <Route path="/" element={<GymRoute><GymLayout /></GymRoute>}>
           <Route index element={<Navigate to="/dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="members" element={<MembersListPage />} />
-          <Route path="members/add" element={<AddMemberPage />} />
-          <Route path="members/report" element={<NewMembersReportPage />} />
-          <Route path="members/:id" element={<MemberDetailPage />} />
-          <Route path="members/:id/edit" element={<EditMemberPage />} />
-          <Route path="payments" element={<PaymentsListPage />} />
-          <Route path="payments/add" element={<AddPaymentPage />} />
+          <Route path="members" element={<FeatureRoute feature="members" title="Member Management"><MembersListPage /></FeatureRoute>} />
+          <Route path="members/add" element={<FeatureRoute feature="members"><AddMemberPage /></FeatureRoute>} />
+          <Route path="members/report" element={<FeatureRoute feature="members"><NewMembersReportPage /></FeatureRoute>} />
+          <Route path="members/:id" element={<FeatureRoute feature="members"><MemberDetailPage /></FeatureRoute>} />
+          <Route path="members/:id/edit" element={<FeatureRoute feature="members"><EditMemberPage /></FeatureRoute>} />
+          <Route path="payments" element={<FeatureRoute feature="payments" title="Payment Management"><PaymentsListPage /></FeatureRoute>} />
+          <Route path="payments/add" element={<FeatureRoute feature="payments"><AddPaymentPage /></FeatureRoute>} />
           <Route path="payments/pending" element={<Navigate to="/action-center" replace />} />
-          <Route path="payments/revenue" element={<RevenuePage />} />
-          <Route path="expenses" element={<ExpensesListPage />} />
-          <Route path="expenses/add" element={<AddExpensePage />} />
-          <Route path="expenses/:id/edit" element={<EditExpensePage />} />
-          <Route path="expenses/summary" element={<ExpenseSummaryPage />} />
-          <Route path="staff" element={<StaffListPage />} />
-          <Route path="trainers" element={<TrainersPage />} />
-          <Route path="data" element={<DataPage />} />
-          <Route path="whatsapp" element={<MessagingPage />} />
-          <Route path="classes" element={<ClassesPage />} />
-          <Route path="leads" element={<LeadsPage />} />
-          <Route path="shop" element={<PosPage />} />
-          <Route path="staff/add" element={<AddStaffPage />} />
-          <Route path="staff/:id" element={<StaffDetailPage />} />
-          <Route path="staff/:id/edit" element={<EditStaffPage />} />
+          <Route path="payments/revenue" element={<FeatureRoute feature="reports" title="Advanced Reports" description="Upgrade to view advanced revenue and financial reports."><RevenuePage /></FeatureRoute>} />
+          <Route path="expenses" element={<FeatureRoute feature="expenses" title="Expense Tracking" description="Keep track of your gym's expenses automatically."><ExpensesListPage /></FeatureRoute>} />
+          <Route path="expenses/add" element={<FeatureRoute feature="expenses"><AddExpensePage /></FeatureRoute>} />
+          <Route path="expenses/:id/edit" element={<FeatureRoute feature="expenses"><EditExpensePage /></FeatureRoute>} />
+          <Route path="expenses/summary" element={<FeatureRoute feature="reports"><ExpenseSummaryPage /></FeatureRoute>} />
+          <Route path="staff" element={<FeatureRoute feature="staff" title="Staff Management" description="Manage your staff, permissions, and shifts."><StaffListPage /></FeatureRoute>} />
+          <Route path="trainers" element={<FeatureRoute feature="trainers" title="Trainer Management" description="Manage personal trainers and their clients."><TrainersPage /></FeatureRoute>} />
+          <Route path="data" element={<FeatureRoute feature="data" title="Data Import/Export" description="Import members from Excel or export your data to CSV."><DataPage /></FeatureRoute>} />
+          <Route path="whatsapp" element={<FeatureRoute feature="whatsapp" title="WhatsApp Automation" description="Automatically send reminders and receipts via WhatsApp."><MessagingPage /></FeatureRoute>} />
+          <Route path="classes" element={<FeatureRoute feature="classes" title="Class Scheduling" description="Schedule classes and manage class attendance."><ClassesPage /></FeatureRoute>} />
+          <Route path="leads" element={<FeatureRoute feature="leads" title="Lead Management" description="Track inquiries and convert leads into members."><LeadsPage /></FeatureRoute>} />
+          <Route path="shop" element={<FeatureRoute feature="shop" title="Point of Sale" description="Sell supplements and gear directly from your gym."><PosPage /></FeatureRoute>} />
+          <Route path="staff/add" element={<FeatureRoute feature="staff"><AddStaffPage /></FeatureRoute>} />
+          <Route path="staff/:id" element={<FeatureRoute feature="staff"><StaffDetailPage /></FeatureRoute>} />
+          <Route path="staff/:id/edit" element={<FeatureRoute feature="staff"><EditStaffPage /></FeatureRoute>} />
           <Route path="action-center" element={<ActionCenterPage />} />
           <Route path="notifications" element={<Navigate to="/action-center" replace />} />
           <Route path="settings" element={<SettingsPage />} />
-          <Route path="attendance" element={<AttendancePage />} />
-          <Route path="attendance/scanner" element={<AttendanceScanner />} />
+          <Route path="attendance" element={<FeatureRoute feature="attendance" title="Attendance Tracking"><AttendancePage /></FeatureRoute>} />
+          <Route path="attendance/scanner" element={<FeatureRoute feature="attendance"><AttendanceScanner /></FeatureRoute>} />
         </Route>
 
         <Route path="/admin" element={<AdminRoute><AdminLayout /></AdminRoute>}>
@@ -139,18 +157,22 @@ function AppRoutes() {
   );
 }
 
+import { PlanProvider } from './contexts/PlanContext';
+
 export default function App() {
   return (
     <ErrorBoundary>
       <BrowserRouter>
         <AuthProvider>
-          <ToastProvider>
-            <NavigationProvider>
-              <ConfirmProvider>
-                <AppRoutes />
-              </ConfirmProvider>
-            </NavigationProvider>
-          </ToastProvider>
+          <PlanProvider>
+            <ToastProvider>
+              <NavigationProvider>
+                <ConfirmProvider>
+                  <AppRoutes />
+                </ConfirmProvider>
+              </NavigationProvider>
+            </ToastProvider>
+          </PlanProvider>
         </AuthProvider>
       </BrowserRouter>
     </ErrorBoundary>

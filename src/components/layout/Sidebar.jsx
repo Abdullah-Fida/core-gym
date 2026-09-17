@@ -3,10 +3,11 @@ import { NavLink, useNavigate, useLocation, matchPath } from 'react-router-dom';
 import {
   LayoutDashboard, Users, ScanLine, CalendarDays, UserPlus, Bell,
   Wallet, Receipt, ShoppingCart, BarChart3,
-  Dumbbell, MessageCircle, DatabaseBackup, Settings, LogOut,
+  Dumbbell, MessageCircle, DatabaseBackup, Settings, LogOut, Lock,
 } from 'lucide-react';
 import api from '../../lib/api';
 import { useAuth } from '../../contexts/AuthContext';
+import { usePlan } from '../../contexts/PlanContext';
 import { cn } from '../../lib/cn';
 import Logo from '../ui/Logo';
 
@@ -23,42 +24,43 @@ const NAV = [
     title: 'Daily',
     items: [
       { path: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-      { path: '/members', icon: Users, label: 'Members' },
-      { path: '/attendance', icon: ScanLine, label: 'Check-in' },
+      { path: '/members', icon: Users, label: 'Members', feature: 'members' },
+      { path: '/attendance', icon: ScanLine, label: 'Check-in', feature: 'attendance' },
       { path: '/action-center', icon: Bell, label: 'Follow-ups', badgeKey: 'pending' },
-      { path: '/classes', icon: CalendarDays, label: 'Classes' },
-      { path: '/leads', icon: UserPlus, label: 'Enquiries' },
+      { path: '/classes', icon: CalendarDays, label: 'Classes', feature: 'classes' },
+      { path: '/leads', icon: UserPlus, label: 'Enquiries', feature: 'leads' },
     ],
   },
   {
     title: 'Money',
     items: [
-      { path: '/payments', icon: Wallet, label: 'Payments', end: true, extraActivePaths: ['/payments/add'] },
-      { path: '/shop', icon: ShoppingCart, label: 'Shop' },
-      { path: '/expenses', icon: Receipt, label: 'Expenses', end: true, extraActivePaths: ['/expenses/add', '/expenses/:id/edit'] },
-      { path: '/payments/revenue', icon: BarChart3, label: 'Reports', extraActivePaths: ['/expenses/summary'] },
+      { path: '/payments', icon: Wallet, label: 'Payments', end: true, extraActivePaths: ['/payments/add'], feature: 'payments' },
+      { path: '/shop', icon: ShoppingCart, label: 'Shop', feature: 'shop' },
+      { path: '/expenses', icon: Receipt, label: 'Expenses', end: true, extraActivePaths: ['/expenses/add', '/expenses/:id/edit'], feature: 'expenses' },
+      { path: '/payments/revenue', icon: BarChart3, label: 'Reports', extraActivePaths: ['/expenses/summary'], feature: 'reports' },
     ],
   },
   {
     title: 'Manage',
     items: [
-      { path: '/staff', icon: Users, label: 'Staff' },
-      { path: '/trainers', icon: Dumbbell, label: 'Trainers' },
-      { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp' },
-      { path: '/data', icon: DatabaseBackup, label: 'Import & export' },
+      { path: '/staff', icon: Users, label: 'Staff', feature: 'staff' },
+      { path: '/trainers', icon: Dumbbell, label: 'Trainers', feature: 'trainers' },
+      { path: '/whatsapp', icon: MessageCircle, label: 'WhatsApp', feature: 'whatsapp' },
+      { path: '/data', icon: DatabaseBackup, label: 'Import & export', feature: 'data' },
       { path: '/settings', icon: Settings, label: 'Settings' },
     ],
   },
 ];
 
-const itemClasses = (active) =>
+const itemClasses = (active, locked = false) =>
   cn(
     'group relative flex items-center gap-3 w-full pl-3 pr-2 py-2 rounded-lg text-sm',
     'transition-colors duration-150',
     'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-inset',
     active
       ? 'bg-accent-soft text-accent font-semibold'
-      : 'text-body hover:text-heading hover:bg-surface-3 font-medium'
+      : 'text-body hover:text-heading hover:bg-surface-3 font-medium',
+    locked && 'opacity-60 grayscale'
   );
 
 export default function Sidebar() {
@@ -103,6 +105,8 @@ export default function Sidebar() {
     );
   };
 
+  const { canUseFeature } = usePlan();
+
   return (
     <aside
       className={cn(
@@ -124,12 +128,17 @@ export default function Sidebar() {
             </h2>
             {group.items.map((item) => {
               const badge = item.badgeKey === 'pending' ? pendingCount : 0;
+              const locked = item.feature ? !canUseFeature(item.feature) : false;
+
               return (
                 <NavLink
                   key={item.path}
                   to={item.path}
                   end={item.end}
-                  className={({ isActive }) => itemClasses(isMenuItemActive(item, isActive))}
+                  className={({ isActive }) => itemClasses(isMenuItemActive(item, isActive), locked)}
+                  onClick={(e) => {
+                    if (locked) e.preventDefault(); // Don't navigate if locked (route guard will also catch it, but good for UI)
+                  }}
                 >
                   {({ isActive }) => {
                     const active = isMenuItemActive(item, isActive);
@@ -139,20 +148,22 @@ export default function Sidebar() {
                         <span
                           className={cn(
                             'absolute left-0 top-1.5 bottom-1.5 w-0.5 rounded-r-full transition-colors',
-                            active ? 'bg-accent' : 'bg-transparent'
+                            active && !locked ? 'bg-accent' : 'bg-transparent'
                           )}
                           aria-hidden="true"
                         />
                         <item.icon className="size-4.5 shrink-0" aria-hidden="true" />
-                        <span className="truncate">{item.label}</span>
-                        {badge > 0 && (
+                        <span className="truncate flex-1">{item.label}</span>
+                        {locked ? (
+                          <Lock className="size-3 text-muted shrink-0 ml-auto" aria-hidden="true" />
+                        ) : badge > 0 ? (
                           <span
                             className="ml-auto min-w-5 h-5 px-1.5 inline-flex items-center justify-center rounded-full bg-danger text-white text-[0.6875rem] font-bold tabular-nums"
                             aria-label={`${badge} needing attention`}
                           >
                             {badge > 99 ? '99+' : badge}
                           </span>
-                        )}
+                        ) : null}
                       </>
                     );
                   }}
