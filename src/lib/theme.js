@@ -59,6 +59,16 @@ function createThemePreset({
 
 export const THEME_PRESETS = [
   createThemePreset({
+    id: 'batgos',
+    label: 'Batgos',
+    description: 'Official Batgos branding',
+    preview: '#84cc16',
+    primary: '#84cc16',
+    hover: '#65a30d',
+    secondary: '#a3e635',
+    rgb: '132, 204, 22',
+  }),
+  createThemePreset({
     id: 'ocean-blue',
     label: 'Aurora Blue',
     description: 'Vivid and modern',
@@ -160,7 +170,7 @@ export const THEME_PRESETS = [
   }),
 ];
 
-const DEFAULT_THEME_ID = 'amber-gold';
+const DEFAULT_THEME_ID = 'batgos';
 
 function getThemeById(themeId) {
   return THEME_PRESETS.find((theme) => theme.id === themeId) || THEME_PRESETS[0];

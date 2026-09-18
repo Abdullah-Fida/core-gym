@@ -200,12 +200,29 @@ export default function SettingsPage() {
             ) : null}
           </div>
 
+          {plan?.features && (
+            <div className="flex flex-col gap-2 mb-4 px-2">
+              {Object.entries(plan.features).map(([key, enabled]) => (
+                <div key={key} className="flex items-center gap-2 text-sm">
+                  {enabled ? (
+                    <CheckCircle2 className="size-4 text-success shrink-0" aria-hidden="true" />
+                  ) : (
+                    <Lock className="size-4 text-muted shrink-0" aria-hidden="true" />
+                  )}
+                  <span className={enabled ? 'text-body' : 'text-muted'}>
+                    {key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           <Button 
             block 
-            onClick={() => window.open('mailto:support@batgos.com?subject=Upgrade%20Plan', '_blank')}
+            onClick={() => window.open('https://wa.me/923020448732?text=Hi%2C%20I%20want%20to%20upgrade%20my%20Batgos%20plan', '_blank')}
             className="bg-gradient-to-r from-accent to-accent-hover"
           >
-            Upgrade Plan
+            Contact Us to Upgrade
           </Button>
         </Card>
 
@@ -226,17 +243,6 @@ export default function SettingsPage() {
               inputMode="numeric"
               value={form.default_monthly_fee}
               onChange={(e) => set('default_monthly_fee', e.target.value)}
-            />
-            {/*
-              attendance_active was already in the form state and sent to the
-              API, but had no control — there was no way to turn the gate on or
-              off from the UI.
-            */}
-            <Toggle
-              label="Attendance gate"
-              description="Require a check-in scan at the entrance."
-              checked={form.attendance_active}
-              onChange={(v) => set('attendance_active', v)}
             />
             <Button type="submit" block loading={isSaving} className="mt-1">
               <Save className="size-4" aria-hidden="true" />
@@ -361,39 +367,7 @@ export default function SettingsPage() {
           </Button>
         </Card>
 
-        <Card padding="lg">
-          <CardHeader
-            title="WhatsApp templates"
-            subtitle="Placeholders: [Name] [GymName] [Days] [Amount] [Phone]"
-          />
-          <form className="flex flex-col gap-4" onSubmit={handleSave}>
-            <Textarea
-              label="Active members"
-              rows={3}
-              placeholder="Message for members in good standing…"
-              value={form.wa_msg_active}
-              onChange={(e) => set('wa_msg_active', e.target.value)}
-            />
-            <Textarea
-              label="Due soon (0–3 days left)"
-              rows={3}
-              placeholder="Message for members whose fee is about to expire…"
-              value={form.wa_msg_due_soon}
-              onChange={(e) => set('wa_msg_due_soon', e.target.value)}
-            />
-            <Textarea
-              label="Expired members"
-              rows={3}
-              placeholder="Message for members whose fee has expired…"
-              value={form.wa_msg_expired}
-              onChange={(e) => set('wa_msg_expired', e.target.value)}
-            />
-            <Button type="submit" block loading={isSaving}>
-              <Save className="size-4" aria-hidden="true" />
-              Save templates
-            </Button>
-          </form>
-        </Card>
+
 
         <Card padding="lg">
           <CardHeader title="Change password" />

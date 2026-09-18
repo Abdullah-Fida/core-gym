@@ -10,7 +10,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/cn';
 import {
-  Page, PageHeader, Card, CardHeader, Button, Input, Tabs,
+  Page, PageHeader, Card, CardHeader, Button, Input, Tabs, Toggle,
   Avatar, Badge, MemberStatusBadge, EmptyState, ListSkeleton,
 } from '../../components/ui';
 
@@ -39,6 +39,9 @@ export default function AttendancePage() {
   const [searchResults, setSearchResults] = useState([]);
   const [searchTerm, setSearchTerm] = useState('');
 
+  const [liveFeed, setLiveFeed] = useState(false);
+  const [attendanceGate, setAttendanceGate] = useState(false);
+
   const fetchHistory = useCallback(async () => {
     setHistory(null);
     try {
@@ -55,6 +58,25 @@ export default function AttendancePage() {
   useEffect(() => {
     if (activeTab === 'history') fetchHistory();
   }, [activeTab, fetchHistory]);
+
+  useEffect(() => {
+    api.get('/gym').then(res => {
+      if (res.data?.data) {
+        setAttendanceGate(res.data.data.attendance_active ?? false);
+      }
+    }).catch(console.error);
+  }, []);
+
+  const handleGateToggle = async (val) => {
+    setAttendanceGate(val);
+    try {
+      await api.put('/gym', { attendance_active: val });
+      toast.success('Gate setting updated.');
+    } catch (err) {
+      toast.error('Failed to update setting.');
+      setAttendanceGate(!val);
+    }
+  };
 
   useEffect(() => {
     if (searchTerm.trim().length < 2) {
@@ -115,6 +137,22 @@ export default function AttendancePage() {
     }
   };
 
+  useEffect(() => {
+    let timeout;
+    if (liveFeed && scanResult) {
+      timeout = setTimeout(() => {
+        setScanResult(null);
+      }, 2500);
+    }
+    return () => clearTimeout(timeout);
+  }, [liveFeed, scanResult]);
+
+  useEffect(() => {
+    if (liveFeed && activeTab === 'gate' && !scanning && !scanResult) {
+      handleScan();
+    }
+  }, [liveFeed, activeTab, scanning, scanResult]);
+
   const handleManualMark = async (memberId, name) => {
     try {
       await api.post('/attendance/mark', {
@@ -136,7 +174,27 @@ export default function AttendancePage() {
 
   return (
     <Page>
-      <PageHeader title="Attendance" subtitle="Biometric gate and daily check-in log" />
+      <PageHeader 
+        title="Attendance" 
+        subtitle="Biometric gate and daily check-in log"
+        actions={
+          <div className="flex gap-4 bg-surface-2 border border-line rounded-xl p-3 shrink-0">
+            <Toggle
+              label="Live Feed"
+              description="Scan continuously"
+              checked={liveFeed}
+              onChange={setLiveFeed}
+            />
+            <div className="w-px bg-line" />
+            <Toggle
+              label="Attendance Gate"
+              description="Require scan"
+              checked={attendanceGate}
+              onChange={handleGateToggle}
+            />
+          </div>
+        }
+      />
 
       <Tabs items={TABS} value={activeTab} onChange={setActiveTab} className="mb-5" />
 

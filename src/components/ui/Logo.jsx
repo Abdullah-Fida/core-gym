@@ -17,15 +17,21 @@ export function LogoMark({ className }) {
     <span
       className={cn(
         'inline-flex items-center justify-center shrink-0 rounded-xl',
-        'bg-accent text-accent-contrast',
+        'bg-[#152238]',
         'size-9',
         className
       )}
       aria-hidden="true"
     >
-      {/* A dumbbell, drawn as one stroke so it reads at 16px as well as 40px. */}
-      <svg viewBox="0 0 24 24" fill="none" className="size-5" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M4 9v6M7 7v10M17 7v10M20 9v6M7 12h10" stroke="currentColor" strokeWidth="2.2" />
+      <svg viewBox="0 0 48 48" className="size-6">
+        <rect x="8" y="22.5" width="32" height="3" rx="1.5" fill="#94a3b8"/>
+        <rect x="7" y="17" width="4" height="14" rx="2" fill="#cbd5e1"/>
+        <rect x="12" y="15" width="4" height="18" rx="2" fill="#cbd5e1"/>
+        <rect x="19" y="20" width="3" height="9" rx="1" fill="#84cc16"/>
+        <rect x="23.5" y="16" width="3" height="13" rx="1" fill="#9ae626"/>
+        <rect x="28" y="12" width="3" height="17" rx="1" fill="#a3e635"/>
+        <rect x="33" y="15" width="4" height="18" rx="2" fill="#cbd5e1"/>
+        <rect x="38" y="17" width="4" height="14" rx="2" fill="#cbd5e1"/>
       </svg>
     </span>
   );

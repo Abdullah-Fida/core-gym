@@ -42,8 +42,10 @@ export function PlanProvider({ children }) {
     
     // Helpers
     canUseFeature: (featureKey) => {
-      if (!planData?.plan?.features) return true; // Default allow if unknown
-      return planData.plan.features[featureKey] !== false;
+      if (loading || !planData) return true;
+      if (!planData.plan) return false;
+      if (!planData.plan.features) return false;
+      return planData.plan.features[featureKey] === true;
     },
     
     isAtMemberLimit: () => {

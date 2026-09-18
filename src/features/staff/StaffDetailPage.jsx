@@ -10,7 +10,7 @@ import { printThermalReceipt } from '../../lib/thermalPrinter';
 import {
   Page, PageHeader, BackLink, Card, CardHeader, Button, Badge,
   Avatar, Input, Select, Modal, DeleteChoiceModal,
-  Skeleton, ErrorState, EmptyState,
+  Skeleton, ErrorState, EmptyState, Toggle, Textarea
 } from '../../components/ui';
 import { useMoney } from '../../hooks/useMoney';
 
@@ -39,6 +39,10 @@ export default function StaffDetailPage() {
 
   const month = getCurrentMonth();
   const year = getCurrentYear();
+  const nextMonth = month === 12 ? 1 : month + 1;
+  const nextMonthYear = month === 12 ? year + 1 : year;
+
+  const [isAdvance, setIsAdvance] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -51,7 +55,7 @@ export default function StaffDetailPage() {
           return;
         }
         setStaff(s);
-        setPayForm((p) => ({ ...p, amount_paid: String(s.monthly_salary ?? '') }));
+        setPayForm((p) => ({ ...p, amount_paid: String(s.monthly_salary ?? ''), target_month: month, target_year: year }));
       } catch (err) {
         console.error('Failed to fetch staff member', err);
         setNotFound(true);
@@ -59,7 +63,7 @@ export default function StaffDetailPage() {
         setLoading(false);
       }
     })();
-  }, [id]);
+  }, [id, month, year]);
 
   useEffect(() => {
     let alive = true;
@@ -106,8 +110,8 @@ export default function StaffDetailPage() {
       await api.post(`/staff/${id}/salary`, {
         id: pid,
         staff_id: id,
-        month,
-        year,
+        month: payForm.target_month,
+        year: payForm.target_year,
         amount_paid: Number(payForm.amount_paid),
         paid_date: payForm.paid_date,
         payment_method: payForm.payment_method,
@@ -122,8 +126,8 @@ export default function StaffDetailPage() {
         staffName: staff.name,
         staffPhone: staff.phone,
         amount: Number(payForm.amount_paid),
-        month,
-        year,
+        month: payForm.target_month,
+        year: payForm.target_year,
         paidDate: payForm.paid_date,
         paymentMethod: payForm.payment_method,
       });
@@ -333,6 +337,35 @@ export default function StaffDetailPage() {
         description={`${staff.name} · ${getMonthName(month)} ${year}`}
       >
         <form className="flex flex-col gap-4" onSubmit={handlePaySalary}>
+          <Toggle
+            label="Advance Salary"
+            description="Pay salary in advance for upcoming month"
+            checked={isAdvance}
+            onChange={(checked) => {
+              setIsAdvance(checked);
+              setPayForm((p) => {
+                const target_month = checked ? nextMonth : month;
+                const target_year = checked ? nextMonthYear : year;
+                const notes = checked
+                  ? (p.notes.startsWith('ADVANCE: ') ? p.notes : `ADVANCE: ${p.notes}`)
+                  : p.notes.replace(/^ADVANCE:\s*/, '');
+                return { ...p, target_month, target_year, notes };
+              });
+            }}
+          />
+
+          <Select
+            label="Salary Month"
+            value={`${payForm.target_year}-${payForm.target_month}`}
+            onChange={(e) => {
+              const [y, m] = e.target.value.split('-');
+              setPayForm((p) => ({ ...p, target_year: parseInt(y, 10), target_month: parseInt(m, 10) }));
+            }}
+          >
+            <option value={`${year}-${month}`}>{getMonthName(month)} {year}</option>
+            <option value={`${nextMonthYear}-${nextMonth}`}>{getMonthName(nextMonth)} {nextMonthYear}</option>
+          </Select>
+
           <Input
             label="Amount paid"
             required
@@ -358,6 +391,11 @@ export default function StaffDetailPage() {
               </option>
             ))}
           </Select>
+          <Textarea
+            label="Notes"
+            value={payForm.notes}
+            onChange={(e) => setPayForm((p) => ({ ...p, notes: e.target.value }))}
+          />
 
           <div className="flex gap-2 mt-2">
             <Button type="button" variant="secondary" block onClick={() => setShowPayForm(false)}>

@@ -30,12 +30,12 @@ export default function UpgradeGate({ featureKey, children, title, description }
 
       <div className="flex flex-col sm:flex-row gap-3">
         <Button 
-          onClick={() => window.open('mailto:support@batgos.com?subject=Upgrade%20Plan', '_blank')}
+          onClick={() => window.open('https://wa.me/923020448732?text=Hi%2C%20I%20want%20to%20upgrade%20my%20Batgos%20plan', '_blank')}
           size="lg"
           className="bg-gradient-to-r from-accent to-accent-hover hover:opacity-90 transition-opacity"
         >
           <Zap className="size-4" aria-hidden="true" />
-          Upgrade to Pro
+          Contact Us to Upgrade
         </Button>
         <Button variant="secondary" size="lg" onClick={() => window.history.back()}>
           Go back

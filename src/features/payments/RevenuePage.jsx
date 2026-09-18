@@ -51,7 +51,9 @@ const sum = (rows) => rows.reduce((s, p) => s + Number(p.amount || 0), 0);
 export default function RevenuePage() {
   const money = useMoney();
   const [period, setPeriod] = useState('this_month');
+  const [reportType, setReportType] = useState('revenue_overview');
   const [allPayments, setAllPayments] = useState(null);
+  const [allMembers, setAllMembers] = useState(null);
   const [error, setError] = useState(null);
   const [reloadToken, setReloadToken] = useState(0);
 
@@ -59,15 +61,20 @@ export default function RevenuePage() {
     let alive = true;
     (async () => {
       try {
-        const res = await api.get('/payments');
+        const [payRes, memRes] = await Promise.all([
+          api.get('/payments'),
+          api.get('/members')
+        ]);
         if (!alive) return;
-        setAllPayments(res.data.data || []);
+        setAllPayments(payRes.data.data || []);
+        setAllMembers(memRes.data.data || []);
         setError(null);
       } catch (err) {
-        console.error('Failed to fetch payments', err);
+        console.error('Failed to fetch data', err);
         if (!alive) return;
-        setError('Could not load payment data.');
+        setError('Could not load report data.');
         setAllPayments([]);
+        setAllMembers([]);
       }
     })();
     return () => {
@@ -77,12 +84,13 @@ export default function RevenuePage() {
 
   const retry = () => {
     setAllPayments(null);
+    setAllMembers(null);
     setError(null);
     setReloadToken((t) => t + 1);
   };
 
   const report = useMemo(() => {
-    if (!allPayments) return null;
+    if (!allPayments || !allMembers) return null;
     const now = new Date();
     const payments = selectPeriod(allPayments, period, now);
 
@@ -105,10 +113,21 @@ export default function RevenuePage() {
         : String(p.plan_duration_months) === String(value);
 
     const total = sum(payments);
+    const payingMembers = new Set(payments.map((p) => p.member_id).filter(Boolean));
+    const totalMembers = allMembers.length;
+    const paidCount = payingMembers.size;
+    const collectionRate = totalMembers > 0 ? Math.round((paidCount / totalMembers) * 100) : 0;
+    const avgPerMember = paidCount > 0 ? total / paidCount : 0;
+
     return {
       total,
       prevTotal,
       change: prevTotal > 0 ? Math.round(((total - prevTotal) / prevTotal) * 100) : 0,
+      totalTransactions: payments.length,
+      totalMembers,
+      paidCount,
+      collectionRate,
+      avgPerMember,
       byDuration: PLAN_DURATIONS.map((d) => {
         const rows = payments.filter((p) => matchesDuration(p, d.value));
         return { label: d.label, count: rows.length, total: sum(rows) };
@@ -118,7 +137,7 @@ export default function RevenuePage() {
         return { label: m.label, count: rows.length, total: sum(rows) };
       }),
     };
-  }, [allPayments, period]);
+  }, [allPayments, allMembers, period]);
 
   const loading = !report && !error;
 
@@ -126,58 +145,141 @@ export default function RevenuePage() {
     <Page>
       <PageHeader title="Revenue" back={<BackLink to="/payments" label="Payments" />} />
 
-      <Select
-        aria-label="Reporting period"
-        className="mb-4"
-        value={period}
-        onChange={(e) => setPeriod(e.target.value)}
-      >
-        <option value="this_month">This month</option>
-        <option value="last_3_months">Last 3 months</option>
-        <option value="last_6_months">Last 6 months</option>
-        <option value="this_year">This year</option>
-        <option value="all_time">All time</option>
-        <optgroup label="Specific month (this year)">
-          {Array.from({ length: 12 }, (_, i) => (
-            <option key={i + 1} value={`month_${i + 1}`}>
-              {getMonthName(i + 1)}
-            </option>
-          ))}
-        </optgroup>
-      </Select>
+      <div className="flex flex-col sm:flex-row gap-4 mb-4">
+        <Select
+          aria-label="Report type"
+          className="flex-1"
+          value={reportType}
+          onChange={(e) => setReportType(e.target.value)}
+        >
+          <option value="revenue_overview">Revenue Overview</option>
+          <option value="collection_summary">Collection Summary</option>
+          <option value="payment_methods">Payment Methods</option>
+          <option value="plan_duration">Plan Duration Analysis</option>
+        </Select>
+
+        <Select
+          aria-label="Reporting period"
+          className="flex-1"
+          value={period}
+          onChange={(e) => setPeriod(e.target.value)}
+        >
+          <option value="this_month">This month</option>
+          <option value="last_3_months">Last 3 months</option>
+          <option value="last_6_months">Last 6 months</option>
+          <option value="this_year">This year</option>
+          <option value="all_time">All time</option>
+          <optgroup label="Specific month (this year)">
+            {Array.from({ length: 12 }, (_, i) => (
+              <option key={i + 1} value={`month_${i + 1}`}>
+                {getMonthName(i + 1)}
+              </option>
+            ))}
+          </optgroup>
+        </Select>
+      </div>
 
       {error ? (
         <ErrorState title="Revenue report unavailable" description={error} onRetry={retry} />
       ) : (
         <>
-          <Card className="text-center mb-5">
-            <p className="text-xs font-bold uppercase tracking-wide text-muted">Total revenue</p>
-            {loading ? (
-              <Skeleton className="h-11 w-40 mx-auto my-2" />
-            ) : (
-              <p className="text-4xl font-bold text-success font-display tabular-nums my-1">
-                {money(report.total)}
-              </p>
-            )}
-            {!loading && report.prevTotal > 0 && (
-              <p
-                className={cn(
-                  'flex items-center justify-center gap-1 text-sm font-semibold',
-                  report.change >= 0 ? 'text-success' : 'text-danger'
-                )}
-              >
-                {report.change >= 0 ? (
-                  <TrendingUp className="size-4" aria-hidden="true" />
+          {reportType === 'revenue_overview' && (
+            <div className="flex flex-col gap-4">
+              <Card className="text-center">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted">Total revenue</p>
+                {loading ? (
+                  <Skeleton className="h-11 w-40 mx-auto my-2" />
                 ) : (
-                  <TrendingDown className="size-4" aria-hidden="true" />
+                  <p className="text-4xl font-bold text-success font-display tabular-nums my-1">
+                    {money(report.total)}
+                  </p>
                 )}
-                {report.change >= 0 ? '+' : ''}
-                {report.change}% vs previous month
-              </p>
-            )}
-          </Card>
+                {!loading && report.prevTotal > 0 && (
+                  <p
+                    className={cn(
+                      'flex items-center justify-center gap-1 text-sm font-semibold',
+                      report.change >= 0 ? 'text-success' : 'text-danger'
+                    )}
+                  >
+                    {report.change >= 0 ? (
+                      <TrendingUp className="size-4" aria-hidden="true" />
+                    ) : (
+                      <TrendingDown className="size-4" aria-hidden="true" />
+                    )}
+                    {report.change >= 0 ? '+' : ''}
+                    {report.change}% vs previous month
+                  </p>
+                )}
+              </Card>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <Card className="text-center">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted">Avg revenue per member</p>
+                  {loading ? (
+                    <Skeleton className="h-8 w-24 mx-auto my-2" />
+                  ) : (
+                    <p className="text-2xl font-bold text-heading tabular-nums my-1">
+                      {money(report.avgPerMember)}
+                    </p>
+                  )}
+                </Card>
+                <Card className="text-center">
+                  <p className="text-xs font-bold uppercase tracking-wide text-muted">Total transactions</p>
+                  {loading ? (
+                    <Skeleton className="h-8 w-24 mx-auto my-2" />
+                  ) : (
+                    <p className="text-2xl font-bold text-heading tabular-nums my-1">
+                      {report.totalTransactions}
+                    </p>
+                  )}
+                </Card>
+              </div>
+            </div>
+          )}
+
+          {reportType === 'collection_summary' && (
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <Card className="text-center">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted">Total Members</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-24 mx-auto my-2" />
+                ) : (
+                  <p className="text-2xl font-bold text-heading tabular-nums my-1">
+                    {report.totalMembers}
+                  </p>
+                )}
+              </Card>
+              <Card className="text-center">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted">Paid this period</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-24 mx-auto my-2" />
+                ) : (
+                  <p className="text-2xl font-bold text-success tabular-nums my-1">
+                    {report.paidCount}
+                  </p>
+                )}
+              </Card>
+              <Card className="text-center">
+                <p className="text-xs font-bold uppercase tracking-wide text-muted">Collection Rate</p>
+                {loading ? (
+                  <Skeleton className="h-8 w-24 mx-auto my-2" />
+                ) : (
+                  <p className="text-2xl font-bold text-info tabular-nums my-1">
+                    {report.collectionRate}%
+                  </p>
+                )}
+              </Card>
+            </div>
+          )}
+
+          {reportType === 'payment_methods' && (
+            <Card>
+              <CardHeader title="By payment method" />
+              {loading ? <Skeleton className="h-40" /> : <BreakdownList rows={report.byMethod} />}
+            </Card>
+          )}
+
+          {reportType === 'plan_duration' && (
             <Card>
               <CardHeader title="By plan duration" />
               {loading ? (
@@ -186,12 +288,7 @@ export default function RevenuePage() {
                 <BreakdownList rows={report.byDuration} />
               )}
             </Card>
-
-            <Card>
-              <CardHeader title="By payment method" />
-              {loading ? <Skeleton className="h-40" /> : <BreakdownList rows={report.byMethod} />}
-            </Card>
-          </div>
+          )}
         </>
       )}
     </Page>

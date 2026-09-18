@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
   MessageCircle, QrCode, Power, RefreshCw, Plus, Pencil, Trash2,
-  Check, X,
+  Check, X, Save,
 } from 'lucide-react';
 import api from '../../lib/api';
 import { useToast } from '../../contexts/ToastContext';
@@ -61,6 +61,7 @@ export default function MessagingPage() {
   const [modalOpen, setModalOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [form, setForm] = useState(emptyTemplate);
+  const [quickForm, setQuickForm] = useState({ wa_msg_active: '', wa_msg_due_soon: '', wa_msg_expired: '' });
 
   const refresh = useCallback(() => setPollToken((n) => n + 1), []);
 
@@ -89,13 +90,21 @@ export default function MessagingPage() {
     let alive = true;
     (async () => {
       try {
-        const [t, l] = await Promise.all([
+        const [t, l, g] = await Promise.all([
           api.get('/messaging/templates'),
           api.get('/messaging/log'),
+          api.get('/gym')
         ]);
         if (!alive) return;
         setTemplates(t.data.data || []);
         setLog(l.data.data || []);
+        if (g.data.data) {
+          setQuickForm({
+            wa_msg_active: g.data.data.wa_msg_active || '',
+            wa_msg_due_soon: g.data.data.wa_msg_due_soon || '',
+            wa_msg_expired: g.data.data.wa_msg_expired || ''
+          });
+        }
       } catch {
         if (!alive) return;
         setTemplates([]);
@@ -112,6 +121,19 @@ export default function MessagingPage() {
       refresh();
     } catch (err) {
       toast.error(err.response?.data?.message || 'Could not save that.');
+    }
+  };
+
+  const saveQuickTemplates = async (e) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await api.put('/gym', quickForm);
+      toast.success('Templates saved.');
+    } catch (err) {
+      toast.error('Could not save templates.');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -190,6 +212,7 @@ export default function MessagingPage() {
             { key: 'connection', label: 'Connection' },
             { key: 'templates', label: 'Automations', count: templates?.length },
             { key: 'log', label: 'History', count: log?.length },
+            { key: 'quick_templates', label: 'Templates' },
           ]}
           value={tab}
           onChange={setTab}
@@ -356,7 +379,7 @@ export default function MessagingPage() {
           </div>
         )}
 
-        {/* ── Templates ── */}
+        {/* ── Automations ── */}
         {tab === 'templates' && (
           <>
             <div className="flex justify-between items-center gap-3 mb-4">
@@ -425,6 +448,43 @@ export default function MessagingPage() {
               </div>
             )}
           </>
+        )}
+
+        {/* ── Quick Templates ── */}
+        {tab === 'quick_templates' && (
+          <Card padding="lg">
+            <CardHeader
+              title="Quick message templates"
+              subtitle="Placeholders: [Name] [GymName] [Days] [Amount] [Phone]"
+            />
+            <form className="flex flex-col gap-4" onSubmit={saveQuickTemplates}>
+              <Textarea
+                label="Active members"
+                rows={3}
+                placeholder="Message for members in good standing…"
+                value={quickForm.wa_msg_active}
+                onChange={(e) => setQuickForm({ ...quickForm, wa_msg_active: e.target.value })}
+              />
+              <Textarea
+                label="Due soon (0–3 days left)"
+                rows={3}
+                placeholder="Message for members whose fee is about to expire…"
+                value={quickForm.wa_msg_due_soon}
+                onChange={(e) => setQuickForm({ ...quickForm, wa_msg_due_soon: e.target.value })}
+              />
+              <Textarea
+                label="Expired members"
+                rows={3}
+                placeholder="Message for members whose fee has expired…"
+                value={quickForm.wa_msg_expired}
+                onChange={(e) => setQuickForm({ ...quickForm, wa_msg_expired: e.target.value })}
+              />
+              <Button type="submit" block loading={busy}>
+                <Save className="size-4" aria-hidden="true" />
+                Save templates
+              </Button>
+            </form>
+          </Card>
         )}
 
         {/* ── Log ── */}
